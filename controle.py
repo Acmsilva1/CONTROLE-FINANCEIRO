@@ -1,4 +1,4 @@
-# controle.py (FINAL 4: LIMPEZA INTELIGENTE DE SEPARADORES)
+# controle.py (FINAL 5: LIMPEZA AGRESSIVA DE SEPARADORES)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -64,36 +64,25 @@ def format_value_for_sheets(value):
 
 def limpar_e_converter_valor_br(valor_entrada):
     """
-    Converte strings monetárias em float, tentando adivinhar se o formato é BR ou US.
-    A regra é: o último separador (ponto ou vírgula) é o decimal.
+    Converte strings monetárias em float, assumindo o formato BR (vírgula decimal).
+    Método AGRESSIVO: Remove todos os pontos e substitui a vírgula por ponto (decimal).
     """
     valor_str = str(valor_entrada).strip()
     
     if not valor_str:
         return 0.0
 
-    # 1. Remove símbolos de moeda e espaços extras
+    # 1. Remove símbolos de moeda e espaços
     valor_limpo = valor_str.replace('R$', '').replace('€', '').replace('$', '').strip()
 
     try:
-        # Se a string tem vírgula (BR) E ponto (milhar US ou BR mal formatado)
-        if '.' in valor_limpo and ',' in valor_limpo:
-            # Assumimos que o último separador é o decimal.
-            if valor_limpo.index(',') > valor_limpo.index('.'):
-                # Caso BR: remove o ponto (milhar) e troca vírgula por ponto (decimal)
-                valor_limpo = valor_limpo.replace('.', '').replace(',', '.')
-            else:
-                # Caso US: remove a vírgula (milhar) e mantém o ponto (decimal)
-                valor_limpo = valor_limpo.replace(',', '')
-                
-        # Se só tem vírgula (BR simples)
-        elif ',' in valor_limpo:
-            # Caso BR: troca vírgula por ponto (decimal)
-            valor_limpo = valor_limpo.replace(',', '.')
+        # A. Remove TODOS os pontos (assumindo que são separadores de milhar)
+        valor_limpo = valor_limpo.replace('.', '')
         
-        # Se só tem ponto (US simples ou número inteiro) -> mantemos
+        # B. Troca a vírgula (decimal BR) por ponto (decimal Python)
+        valor_limpo = valor_limpo.replace(',', '.')
 
-        # Converte para float
+        # C. Converte para float
         return float(valor_limpo)
         
     except ValueError:
@@ -148,7 +137,7 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             
-            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL OTIMIZADA (MAIS ESPERTA) ---
+            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL OTIMIZADA ---
             df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor_br)
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
