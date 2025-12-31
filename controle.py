@@ -210,6 +210,7 @@ with st.form("form_transacao", clear_on_submit=False):
     todos_meses = list(MESES_PT.values())
     
     # Encontra o índice do Mês que está no Session State
+    # O Streamlit usará este valor como o padrão
     try:
         index_inicial = todos_meses.index(st.session_state.mes_ref_c) 
     except ValueError:
@@ -218,7 +219,7 @@ with st.form("form_transacao", clear_on_submit=False):
     mes_referencia_c = col_c1.selectbox(
         "Mês", 
         options=todos_meses, 
-        index=index_inicial, 
+        # ATENÇÃO: Index removido para evitar conflito com 'key' 
         key="mes_ref_c" # Usa o valor de st.session_state.mes_ref_c como valor inicial e final
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
@@ -265,7 +266,7 @@ with st.form("form_transacao", clear_on_submit=False):
                 "Valor": valor # Enviando o float (ex: 11.56)
             }
             if adicionar_transacao(spreadsheet, data_to_save):
-                # NOVO: Limpa apenas os campos que devem ser zerados
+                # Limpa apenas os campos que devem ser zerados
                 st.session_state.desc_c = ""
                 st.session_state.reais_c = None
                 st.session_state.centavos_c = None
@@ -285,7 +286,7 @@ else:
     
     st.sidebar.header("🗓️ Filtro de Período")
 
-    # MUDANÇA CRÍTICA AQUI: O selectbox usa a chave e o valor do Session State (para sobreviver ao refresh)
+    # O selectbox usa a chave e o valor do Session State (para sobreviver ao refresh)
     todos_os_meses_pt = list(MESES_PT.values())
 
     # O filtro usa o valor de st.session_state.filtro_mes
@@ -293,7 +294,6 @@ else:
         "Selecione o Mês:", 
         options=todos_os_meses_pt, 
         key='filtro_mes', # Chave que vincula o widget ao st.session_state
-        # O valor inicial é implicitamente st.session_state.filtro_mes
     )
 
     if selected_month and 'Mês' in df_transacoes.columns:
