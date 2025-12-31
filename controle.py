@@ -51,9 +51,6 @@ def format_currency(value):
     
     return f"R$ {valor_final}"
 
-# A função format_value_for_sheets e limpar_e_converter_valor_br foram removidas 
-# pois agora enviamos/lêmos floats puros, garantindo a integridade dos dados.
-
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
 # =================================================================
@@ -267,16 +264,15 @@ else:
     
     st.sidebar.header("🗓️ Filtro de Período")
 
-    # MUDANÇA CRÍTICA AQUI: O selectbox usa a chave e o valor do Session State (para sobreviver ao refresh)
+    # MUDANÇA CRÍTICA AQUI: Removendo o parâmetro 'index' para evitar conflito com 'key'
     todos_os_meses_pt = list(MESES_PT.values())
 
-    # Usamos o valor do st.session_state.filtro_mes como o valor inicial do selectbox.
-    # Quando o usuário muda o filtro, o session_state é atualizado.
+    # O filtro agora usa apenas a chave, dependendo do st.session_state para o valor inicial
     selected_month = st.sidebar.selectbox(
         "Selecione o Mês:", 
         options=todos_os_meses_pt, 
         key='filtro_mes', # Chave que vincula o widget ao st.session_state
-        index=todos_os_meses_pt.index(st.session_state.filtro_mes) # Usa o valor do state
+        # O valor inicial é implicitamente st.session_state.filtro_mes
     )
 
     if selected_month and 'Mês' in df_transacoes.columns:
