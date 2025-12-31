@@ -129,7 +129,7 @@ st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
 # O bloco de CSS foi removido daqui para retornar ao tema padrão
 
-st.title("💸 Controle Financeiro Básico (CRUD)")
+st.title("💸 **Controle Financeiro**")
 
 # Conexão
 spreadsheet = conectar_sheets_resource()
@@ -145,7 +145,7 @@ df_transacoes = carregar_dados()
 
 # === INSERÇÃO DE DADOS (CREATE) ===
 
-st.header("📥 Registrar Nova Transação (Create)")
+st.header("📥 Registrar Nova Transação")
 
 with st.form("form_transacao", clear_on_submit=True):
     col_c1, col_c2, col_c3 = st.columns(3)
@@ -264,7 +264,7 @@ else:
 
         # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) ===
 
-        st.header("🛠️ Edição e Exclusão (Update/Delete)")
+        st.header("🛠️ Edição e Exclusão")
         
         with st.expander("📝 Gerenciar Transação", expanded=True):
             
@@ -355,7 +355,7 @@ else:
                         st.markdown("##### Excluir")
                         st.warning(f"Excluindo: **{transacao_dados['Descricao']}** (R$ {transacao_dados['Valor']:,.2f})")
                         
-                        if st.button("🔴 EXCLUIR TRANSAÇÃO (Delete)", type="primary", key='del_button_c'):
+                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
                             deletar_transacao(spreadsheet, transacao_selecionada_id)
                             t.sleep(1)
     else:
