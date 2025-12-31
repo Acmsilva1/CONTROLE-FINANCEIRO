@@ -61,7 +61,7 @@ else:
 
         
         # =================================================================
-        # === CONTEÚDO UNIFICADO DA TELA INICIAL ===
+        # === DASHBOARD (PARTE 1) ===
         # =================================================================
 
         st.header(f"📊 Dashboard: Indicadores de Comando ({selected_period})")
@@ -100,29 +100,27 @@ else:
         st.markdown("#") # Espaço
         st.markdown("---") 
 
+        # =================================================================
+        # === INSERÇÃO DE DADOS (TODOS OS 3 FORMULÁRIOS) ===
+        # =================================================================
+
         st.header("📥 Inserção de Novas Transações")
         st.caption("Use os formulários abaixo para alimentar a máquina de dados.")
         
         # --- BLOCO 1: ADICIONAR RECEITAS ---
         with st.form("form_receita", clear_on_submit=True):
-            st.subheader("💰 Adicionar Receita")
+            st.subheader("💰 1. Adicionar Receita")
             col_r1, col_r2 = st.columns(2)
             descricao = col_r1.text_input("Descrição da Receita", key="desc_r")
             valor = col_r2.number_input("Valor Recebido (R$)", min_value=0.01, format="%.2f", key="val_r")
             col_r3, col_r4 = st.columns(2)
             categoria = col_r3.selectbox("Categoria", options=all_receita_cats, key="cat_r")
             conta = col_r4.text_input("Conta/Meio", key="cont_r")
-            
-            # Formato de data visual americano (limitação do Streamlit, mas o salvamento é BR)
-            data = st.date_input("Data de Recebimento", 
-                                 value=datetime.now().date(), 
-                                 key="data_r") 
-            
+            data = st.date_input("Data de Recebimento", value=datetime.now().date(), key="data_r") 
             submitted = st.form_submit_button("Lançar Receita!")
             
             if submitted:
                 data_to_save = {
-                    # CORREÇÃO CRÍTICA: O formato para SALVAR no Sheets é sempre DD/MM/YYYY
                     "Data": data.strftime('%d/%m/%Y'), 
                     "Descricao": descricao, "Valor": valor,
                     "Tipo": "Receita", "Categoria": categoria, "Subcategoria": "", 
@@ -131,8 +129,51 @@ else:
                 handle_submission(data_to_save, f"Receita '{descricao}' (R$ {valor:,.2f}) registrada com sucesso!")
 
         st.markdown("---")
-        # ... (Adicionar form_fixa e form_variavel aqui) ...
-        # Lembre-se de usar a função 'handle_submission' nos outros formulários!
+        
+        # --- BLOCO 2: ADICIONAR DESPESA FIXA ---
+        with st.form("form_fixa", clear_on_submit=True):
+            st.subheader("🏠 2. Adicionar Despesa Fixa")
+            col_f1, col_f2 = st.columns(2)
+            descricao = col_f1.text_input("Descrição da Despesa Fixa", key="desc_f")
+            valor = col_f2.number_input("Valor da Despesa (R$)", min_value=0.01, format="%.2f", key="val_f")
+            col_f3, col_f4 = st.columns(2)
+            categoria = col_f3.selectbox("Categoria", options=all_despesa_cats, key="cat_f")
+            conta = col_f4.text_input("Conta/Meio de Pagamento", key="cont_f")
+            data = st.date_input("Data de Vencimento/Pagamento", value=datetime.now().date(), key="data_f") 
+            submitted = st.form_submit_button("Lançar Despesa Fixa!")
+            
+            if submitted:
+                data_to_save = {
+                    "Data": data.strftime('%d/%m/%Y'), 
+                    "Descricao": descricao, "Valor": valor,
+                    "Tipo": "Despesa", "Categoria": categoria, "Subcategoria": "Fixa", 
+                    "Conta/Meio": conta, "Status": "Pago" 
+                }
+                handle_submission(data_to_save, f"Despesa Fixa '{descricao}' (R$ {valor:,.2f}) registrada com sucesso!")
+        
+        st.markdown("---")
+
+        # --- BLOCO 3: ADICIONAR DESPESA VARIÁVEL ---
+        with st.form("form_variavel", clear_on_submit=True):
+            st.subheader("🛒 3. Adicionar Despesa Variável")
+            col_v1, col_v2 = st.columns(2)
+            descricao = col_v1.text_input("Descrição da Despesa Variável", key="desc_v")
+            valor = col_v2.number_input("Valor da Despesa (R$)", min_value=0.01, format="%.2f", key="val_v")
+            col_v3, col_v4 = st.columns(2)
+            categoria = col_v3.selectbox("Categoria", options=all_despesa_cats, key="cat_v")
+            conta = col_v4.text_input("Conta/Meio de Pagamento", key="cont_v")
+            data = st.date_input("Data da Transação", value=datetime.now().date(), key="data_v") 
+            submitted = st.form_submit_button("Lançar Despesa Variável!")
+            
+            if submitted:
+                data_to_save = {
+                    "Data": data.strftime('%d/%m/%Y'), 
+                    "Descricao": descricao, "Valor": valor,
+                    "Tipo": "Despesa", "Categoria": categoria, "Subcategoria": "Variável", 
+                    "Conta/Meio": conta, "Status": "Pago" 
+                }
+                handle_submission(data_to_save, f"Despesa Variável '{descricao}' (R$ {valor:,.2f}) registrada com sucesso!")
+
 
         # --- FIM DO CÓDIGO DO APLICATIVO ---
 
