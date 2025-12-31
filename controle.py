@@ -21,7 +21,7 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÃO DE PARSING (Versão Otimizada) ===
+# === FUNÇÃO DE PARSING (A Versão Mais Limpa) ===
 # =================================================================
 
 def parse_valor_monetario(valor_input):
@@ -32,8 +32,8 @@ def parse_valor_monetario(valor_input):
     if not valor_input or valor_input.strip() == "":
         raise ValueError("Campo de valor vazio.")
         
-    # Limpa caracteres não numéricos (R$, espaços, etc.) exceto . e ,
-    clean_input = "".join(filter(lambda x: x.isdigit() or x in (',', '.'), valor_input))
+    # Remove espaços
+    clean_input = valor_input.strip()
     
     # 1. Remove PONTOS (separadores de milhar)
     # Ex: '1.156,00' -> '1156,00'
