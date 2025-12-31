@@ -1,4 +1,4 @@
-# controle.py (VERSÃO ESTÁVEL: RESET NA INSERÇÃO)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -27,6 +27,7 @@ MESES_PT = {
 def format_currency(value):
     """
     Formata um float (ex: 11.56) para string monetária BR (R$ 11,56).
+    (Usada apenas para exibição no Streamlit)
     """
     if value is None or value == 0.0:
         return "R$ 0,00"
@@ -49,44 +50,6 @@ def format_currency(value):
     valor_final = f"{reais_com_ponto},{centavos}"
     
     return f"R$ {valor_final}"
-
-def format_value_for_sheets(value):
-    """
-    Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
-    """
-    if value is None or value == 0.0:
-        return "0,00"
-        
-    valor_str = "{:.2f}".format(value)
-    
-    # Troca o ponto decimal por vírgula decimal (formato BR)
-    return valor_str.replace('.', ',')
-
-def limpar_e_converter_valor_br(valor_entrada):
-    """
-    Converte strings monetárias em float, assumindo o formato BR (vírgula decimal).
-    Método AGRESSIVO: Remove todos os pontos e substitui a vírgula por ponto (decimal).
-    """
-    valor_str = str(valor_entrada).strip()
-    
-    if not valor_str:
-        return 0.0
-
-    # 1. Remove símbolos de moeda e espaços
-    valor_limpo = valor_str.replace('R$', '').replace('€', '').replace('$', '').strip()
-
-    try:
-        # A. Remove TODOS os pontos (assumindo que são separadores de milhar)
-        valor_limpo = valor_limpo.replace('.', '')
-        
-        # B. Troca a vírgula (decimal BR) por ponto (decimal Python)
-        valor_limpo = valor_limpo.replace(',', '.')
-
-        # C. Converte para float
-        return float(valor_limpo)
-        
-    except ValueError:
-        return 0.0 
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
@@ -126,19 +89,23 @@ def conectar_sheets_resource():
 
 @st.cache_data(ttl=10) 
 def carregar_dados(): 
-    """Lê a aba TRANSACOES usando get_all_records() e conversão manual de string BR."""
+    """Lê a aba TRANSACOES forçando a leitura do valor puro (UNFORMATTED_VALUE)."""
     spreadsheet = conectar_sheets_resource() 
     if spreadsheet is None:
         return pd.DataFrame()
         
     try:
-        # Lemos a planilha (obtemos a string VISÍVEL)
-        df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
+        # LÊ O VALOR PURO (UNFORMATTED_VALUE) - FIX DE LEITURA
+        records = spreadsheet.worksheet(ABA_TRANSACOES).get_all_records(
+             value_render_option='UNFORMATTED_VALUE', 
+             head=1 
+        )
+        df_transacoes = pd.DataFrame(records)
 
         if not df_transacoes.empty:
             
-            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL OTIMIZADA ---
-            df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor_br)
+            # Converte para numérico, corrigindo a coluna 'Valor'
+            df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
@@ -151,35 +118,32 @@ def carregar_dados():
 
 
 def adicionar_transacao(spreadsheet, dados_do_form):
-    """Insere uma nova linha de transação no Sheets. Formata Valor para String BR."""
+    """Insere uma nova linha de transação no Sheets. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # Formata o valor float para string BR antes de enviar (Para Sheets com locale BR)
-        dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
-        
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
-        sheet.append_row(nova_linha)
+        
+        # USER_ENTERED interpreta o float corretamente conforme o Locale do Sheets (BR).
+        sheet.append_row(nova_linha, value_input_option='USER_ENTERED') # FIX DE ESCRITA
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
-        carregar_dados.clear() # Limpa o cache para forçar nova leitura
+        carregar_dados.clear() 
         return True
     except Exception as e:
         st.error(f"Erro ao adicionar transação: {e}")
         return False
 
 def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
-    """Atualiza uma transação existente. Formata Valor para String BR."""
+    """Atualiza uma transação existente. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
         
-        # Formata o valor float para string BR antes de enviar.
-        novos_dados['Valor'] = format_value_for_sheets(novos_dados['Valor'])
-        
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
-        sheet.update(f'A{linha_index}', [valores_atualizados])
+        # USER_ENTERED
+        sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED') # FIX DE ESCRITA
         st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
         carregar_dados.clear()
         return True
@@ -209,6 +173,11 @@ st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
 st.title("💸 **Controle Financeiro**")
 
+# Inicialização do Estado (PARA PRESERVAR O FILTRO DE MÊS NO REFRESH)
+if 'filtro_mes' not in st.session_state:
+    mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
+    st.session_state.filtro_mes = mes_atual_init
+    
 # Conexão
 spreadsheet = conectar_sheets_resource()
 if spreadsheet is None:
@@ -225,16 +194,15 @@ df_transacoes = carregar_dados()
 
 st.header("📥 Registrar Nova Transação")
 
-# ATENÇÃO: clear_on_submit=True REATIVADO!
 with st.form("form_transacao", clear_on_submit=True):
     col_c1, col_c2, col_c3, col_c4 = st.columns([1, 1, 1.5, 0.5]) 
     
-    # Mês de inserção SEMPRE inicializa para o mês atual (Dez) em cada rerun
+    # MÊS DE REFERÊNCIA: SEMPRE O MÊS ATUAL DO SISTEMA
     mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
     mes_referencia_c = col_c1.selectbox(
         "Mês", 
         options=list(MESES_PT.values()), 
-        index=list(MESES_PT.values()).index(mes_atual), # FORÇA O ÍNDICE DO MÊS ATUAL
+        index=list(MESES_PT.values()).index(mes_atual), # Força o Mês Atual
         key="mes_ref_c"
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
@@ -278,7 +246,7 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Mês": mes_referencia_c,
                 "Descricao": descricao, 
                 "Categoria": categoria, 
-                "Valor": valor 
+                "Valor": valor # Enviando o float (ex: 11.56)
             }
             adicionar_transacao(spreadsheet, data_to_save) 
             t.sleep(1) 
@@ -295,39 +263,22 @@ else:
     # --- FILTROS E DASHBOARD ---
     
     st.sidebar.header("🗓️ Filtro de Período")
-    
-    # LOGICA DO FILTRO: Usa o session_state para persistência entre reruns
-    if 'filtro_mes' not in st.session_state:
-        st.session_state.filtro_mes = MESES_PT.get(datetime.now().month, 'Jan')
 
-    # Garante que as colunas existam antes de tentar acessá-las
-    if 'Mês' in df_transacoes.columns and 'Mes_Num' in df_transacoes.columns:
-        # Pega a lista de meses disponíveis, ordenados do mais novo para o mais antigo
-        meses_disponiveis = df_transacoes[['Mês', 'Mes_Num']].drop_duplicates().sort_values(by='Mes_Num', ascending=False)['Mês'].tolist()
-        
-        # Garante que o mês atual do sistema esteja no topo, mesmo que não haja dados para ele ainda
-        if MESES_PT.get(datetime.now().month, 'Jan') not in meses_disponiveis:
-             meses_disponiveis.insert(0, MESES_PT.get(datetime.now().month, 'Jan'))
-             
-    else:
-        meses_disponiveis = []
-        
-    if meses_disponiveis:
-        # Se o mês salvo no state for válido, usa ele. Se não, usa o primeiro (mais recente)
-        initial_index = meses_disponiveis.index(st.session_state.filtro_mes) if st.session_state.filtro_mes in meses_disponiveis else 0
-        
-        selected_month = st.sidebar.selectbox(
-            "Selecione o Mês:", 
-            options=meses_disponiveis, 
-            index=initial_index, # Usa o índice baseado no Session State
-            key='filtro_mes' # A Chave faz a magia de persistir o estado no Soft Refresh
-        )
-    else:
-        selected_month = None
+    # MUDANÇA CRÍTICA AQUI: Removendo o parâmetro 'index' para evitar conflito com 'key'
+    todos_os_meses_pt = list(MESES_PT.values())
+
+    # O filtro agora usa apenas a chave, dependendo do st.session_state para o valor inicial
+    selected_month = st.sidebar.selectbox(
+        "Selecione o Mês:", 
+        options=todos_os_meses_pt, 
+        key='filtro_mes', # Chave que vincula o widget ao st.session_state
+        # O valor inicial é implicitamente st.session_state.filtro_mes
+    )
 
     if selected_month and 'Mês' in df_transacoes.columns:
         df_filtrado = df_transacoes[df_transacoes['Mês'] == selected_month].copy()
     else:
+        # Se for um mês novo sem dados, df_filtrado será vazio, e o dashboard mostrará R$ 0,00
         df_filtrado = pd.DataFrame() 
 
 
@@ -396,10 +347,12 @@ else:
         
         with st.expander("📝 Gerenciar Transação", expanded=True):
             
+            # Filtra as transações apenas para o mês selecionado
             transacoes_atuais = df_filtrado['ID Transacao'].tolist()
             
             def formatar_selecao_transacao(id_val):
                 try:
+                    # Busca os dados da transação, não apenas os filtrados
                     df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
                     valor_formatado = format_currency(df_linha['Valor'])
                     return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado})"
