@@ -1,4 +1,3 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -173,11 +172,20 @@ st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
 st.title("💸 **Controle Financeiro**")
 
-# Inicialização do Estado (PARA PRESERVAR O FILTRO DE MÊS NO REFRESH)
+# LÓGICA DE INICIALIZAÇÃO E GOVERNANÇA DO ESTADO (SESSION STATE)
+mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
+
+# 1. Filtro do Dashboard (Preserva seleção, volta para o mês atual no F5)
 if 'filtro_mes' not in st.session_state:
-    mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
     st.session_state.filtro_mes = mes_atual_init
     
+# 2. Formulário de Inserção (Preserva seleção do Mês, limpa outros campos, volta para o mês atual no F5)
+if 'mes_ref_c' not in st.session_state: st.session_state.mes_ref_c = mes_atual_init
+if 'desc_c' not in st.session_state: st.session_state.desc_c = ""
+if 'reais_c' not in st.session_state: st.session_state.reais_c = None
+if 'centavos_c' not in st.session_state: st.session_state.centavos_c = None
+
+
 # Conexão
 spreadsheet = conectar_sheets_resource()
 if spreadsheet is None:
@@ -194,24 +202,32 @@ df_transacoes = carregar_dados()
 
 st.header("📥 Registrar Nova Transação")
 
-with st.form("form_transacao", clear_on_submit=True):
+# Removido clear_on_submit=True para que o selectbox do Mês mantenha o estado
+with st.form("form_transacao", clear_on_submit=False): 
     col_c1, col_c2, col_c3, col_c4 = st.columns([1, 1, 1.5, 0.5]) 
     
-    # MÊS DE REFERÊNCIA: SEMPRE O MÊS ATUAL DO SISTEMA
-    mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
+    # MÊS DE REFERÊNCIA: Usa o valor do Session State (st.session_state.mes_ref_c)
+    todos_meses = list(MESES_PT.values())
+    
+    # Encontra o índice do Mês que está no Session State
+    try:
+        index_inicial = todos_meses.index(st.session_state.mes_ref_c) 
+    except ValueError:
+        index_inicial = todos_meses.index(mes_atual_init) # Fallback para o mês real
+        
     mes_referencia_c = col_c1.selectbox(
         "Mês", 
-        options=list(MESES_PT.values()), 
-        index=list(MESES_PT.values()).index(mes_atual), # Força o Mês Atual
-        key="mes_ref_c"
+        options=todos_meses, 
+        index=index_inicial, 
+        key="mes_ref_c" # Usa o valor de st.session_state.mes_ref_c como valor inicial e final
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # ENTRADAS: Reais/Centavos
+    # ENTRADAS: Reais/Centavos - Bindados ao Session State
     reais_input = col_c3.number_input(
         "Valor (R$ - Reais)", 
         min_value=0, 
-        value=None, 
+        value=st.session_state.reais_c, # Usando o valor do State
         step=1, 
         format="%d", 
         key="reais_c"
@@ -221,13 +237,13 @@ with st.form("form_transacao", clear_on_submit=True):
         "Centavos", 
         min_value=0, 
         max_value=99, 
-        value=None, 
+        value=st.session_state.centavos_c, # Usando o valor do State
         step=1, 
         format="%d", 
         key="centavos_c"
     )
     
-    descricao = st.text_input("Descrição Detalhada", key="desc_c")
+    descricao = st.text_input("Descrição Detalhada", key="desc_c", value=st.session_state.desc_c) # Usando o valor do State
     
     submitted = st.form_submit_button("Lançar Transação!")
     
@@ -248,8 +264,13 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Categoria": categoria, 
                 "Valor": valor # Enviando o float (ex: 11.56)
             }
-            adicionar_transacao(spreadsheet, data_to_save) 
-            t.sleep(1) 
+            if adicionar_transacao(spreadsheet, data_to_save):
+                # NOVO: Limpa apenas os campos que devem ser zerados
+                st.session_state.desc_c = ""
+                st.session_state.reais_c = None
+                st.session_state.centavos_c = None
+                # O mês (st.session_state.mes_ref_c) é mantido!
+                t.sleep(1) # Reroda o app, o Mês permanece
         else:
             st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios. Não complique.")
 
@@ -264,10 +285,10 @@ else:
     
     st.sidebar.header("🗓️ Filtro de Período")
 
-    # MUDANÇA CRÍTICA AQUI: Removendo o parâmetro 'index' para evitar conflito com 'key'
+    # MUDANÇA CRÍTICA AQUI: O selectbox usa a chave e o valor do Session State (para sobreviver ao refresh)
     todos_os_meses_pt = list(MESES_PT.values())
 
-    # O filtro agora usa apenas a chave, dependendo do st.session_state para o valor inicial
+    # O filtro usa o valor de st.session_state.filtro_mes
     selected_month = st.sidebar.selectbox(
         "Selecione o Mês:", 
         options=todos_os_meses_pt, 
