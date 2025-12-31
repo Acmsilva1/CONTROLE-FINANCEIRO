@@ -1,4 +1,4 @@
-# controle.py (FINAL 5: LIMPEZA AGRESSIVA DE SEPARADORES)
+# controle.py (FINAL 6: LEITURA DE VALOR PURO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -53,6 +53,8 @@ def format_currency(value):
 def format_value_for_sheets(value):
     """
     Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
+    NOTA: Ao inserir, o Sheets pode reinterpretar. Usar o valor puro 11.56 é geralmente melhor, 
+    mas mantive esta função para a formatação BR original. Se possível, insira o float direto.
     """
     if value is None or value == 0.0:
         return "0,00"
@@ -66,6 +68,8 @@ def limpar_e_converter_valor_br(valor_entrada):
     """
     Converte strings monetárias em float, assumindo o formato BR (vírgula decimal).
     Método AGRESSIVO: Remove todos os pontos e substitui a vírgula por ponto (decimal).
+    Esta função é mantida, mas não mais usada na leitura do Sheets (carregar_dados)
+    pois agora usamos UNFORMATTED_VALUE.
     """
     valor_str = str(valor_entrada).strip()
     
@@ -126,19 +130,24 @@ def conectar_sheets_resource():
 
 @st.cache_data(ttl=10) 
 def carregar_dados(): 
-    """Lê a aba TRANSACOES usando get_all_records() e conversão manual de string BR."""
+    """Lê a aba TRANSACOES forçando a leitura do valor puro (UNFORMATTED_VALUE)."""
     spreadsheet = conectar_sheets_resource() 
     if spreadsheet is None:
         return pd.DataFrame()
         
     try:
-        # Lemos a planilha (obtemos a string VISÍVEL)
-        df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
+        # MUDANÇA: Usamos UNFORMATTED_VALUE para garantir que 'Valor' venha como número (11.56) 
+        # e não como string formatada BR ('11,56' ou '1.156,00').
+        records = spreadsheet.worksheet(ABA_TRANSACOES).get_all_records(
+             value_render_option='UNFORMATTED_VALUE', 
+             head=1 # Garantimos que o cabeçalho seja respeitado
+        )
+        df_transacoes = pd.DataFrame(records)
 
         if not df_transacoes.empty:
             
-            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL OTIMIZADA ---
-            df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor_br)
+            # Garante que a coluna Valor seja numérica (Float)
+            df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
@@ -155,7 +164,8 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # Formata o valor float para string BR antes de enviar (Para Sheets com locale BR)
+        # Mantive a função de formatação para inserção para garantir compatibilidade com locale BR,
+        # embora o Sheets geralmente aceite o float direto.
         dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
         
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
@@ -174,7 +184,7 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
         
-        # Formata o valor float para string BR antes de enviar.
+        # Mantive a função de formatação para inserção
         novos_dados['Valor'] = format_value_for_sheets(novos_dados['Valor'])
         
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
@@ -296,6 +306,7 @@ else:
     
     # Garante que as colunas existam antes de tentar acessá-las
     if 'Mês' in df_transacoes.columns and 'Mes_Num' in df_transacoes.columns:
+        # AQUI É IMPORTANTE: Só pega meses únicos e ordena pelo número do mês
         meses_disponiveis = df_transacoes[['Mês', 'Mes_Num']].drop_duplicates().sort_values(by='Mes_Num', ascending=False)['Mês'].tolist()
     else:
         meses_disponiveis = []
