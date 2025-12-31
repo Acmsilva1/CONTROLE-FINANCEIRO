@@ -1,4 +1,4 @@
-# controle.py (FINAL, VALOR MONETÁRIO COM PARSING CORRIGIDO PARA VÍRGULA DECIMAL BRASILEIRA)
+# controle.py (FINAL, MODO CLARO PADRÃO, COM CORREÇÃO DE PARSING)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -21,7 +21,7 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÃO DE PARSING (A Versão Mais Limpa) ===
+# === FUNÇÃO DE PARSING (A Solução Definitiva) ===
 # =================================================================
 
 def parse_valor_monetario(valor_input):
@@ -32,20 +32,22 @@ def parse_valor_monetario(valor_input):
     if not valor_input or valor_input.strip() == "":
         raise ValueError("Campo de valor vazio.")
         
-    # Remove espaços
     clean_input = valor_input.strip()
     
     # 1. Remove PONTOS (separadores de milhar)
-    # Ex: '1.156,00' -> '1156,00'
     clean_input = clean_input.replace('.', '')
     
     # 2. Substitui a VÍRGULA (decimal brasileiro) pelo ponto decimal do Python
-    # Ex: '1156,00' -> '1156.00'
     clean_input = clean_input.replace(',', '.')
     
     # 3. Converte para float
     return float(clean_input)
 
+
+# Função para formatar a moeda (exibição) - Usada nos Cards (Metrics) e tabelas
+def format_currency(value):
+    # Converte para string US (1,234.56), troca os separadores para BR (1.234,56)
+    return f"R$ {value:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA (inalteradas) ===
@@ -184,7 +186,7 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # st.text_input é OBRIGATÓRIO para aceitar a vírgula
+    # Voltamos a usar st.text_input para forçar a entrada de string
     valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 235,50 ou 1.235,50") 
     
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
@@ -249,10 +251,7 @@ else:
 
         col1, col2, col3 = st.columns(3)
         
-        # Função para formatar a moeda (exibição)
-        def format_currency(value):
-            return f"R$ {value:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-
+        # CORREÇÃO: Usando a função format_currency para todos os Metrics
         col1.metric("Total de Receitas", format_currency(total_receita))
         col2.metric("Total de Despesas", format_currency(total_despesa))
         col3.metric("Valor Líquido Restante", 
@@ -267,6 +266,7 @@ else:
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
         df_base_display = df_filtrado.copy()
+        # CORREÇÃO: Usando a função format_currency na tabela
         df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(format_currency)
         
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
@@ -311,7 +311,7 @@ else:
             def formatar_selecao_transacao(id_val):
                 try:
                     df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
-                    valor_formatado = format_currency(df_linha['Valor'])
+                    valor_formatado = format_currency(df_linha['Valor']) # Usando format_currency
                     return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado})"
                 except:
                     return f"ID Inconsistente ({id_val[:4]}...)"
@@ -338,11 +338,9 @@ else:
                     with col_u:
                         st.markdown("##### Atualizar Transação Selecionada")
                         
-                        opcoes_categoria = ["Receita", "Despesa"]
-                        categoria_existente = transacao_dados.get('Categoria', opcoes_categoria[0])
-                        
                         with st.form("form_update_transacao_c"):
                             
+                            categoria_existente = transacao_dados['Categoria']
                             mes_existente = transacao_dados['Mês']
                             
                             try:
@@ -363,15 +361,15 @@ else:
                                 index=mes_idx, 
                                 key='ut_mes_c'
                             )
-                            
+
                             try:
-                                cat_index = opcoes_categoria.index(categoria_existente)
+                                cat_index = ["Receita", "Despesa"].index(categoria_existente)
                             except ValueError:
                                 cat_index = 0
                                 
-                            novo_categoria = col_upd_2.selectbox("Tipo de Transação", opcoes_categoria, index=cat_index, key='ut_tipo_c')
+                            novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # st.text_input para edição, exibindo valor formatado em PT-BR
+                            # Voltamos a usar st.text_input para edição
                             valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
                             novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
                             
@@ -392,7 +390,7 @@ else:
                                     dados_atualizados = {
                                         'ID Transacao': transacao_selecionada_id, 
                                         'Descricao': novo_descricao,
-                                        'Valor': novo_valor, 
+                                        'Valor': novo_valor,
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
                                     }
