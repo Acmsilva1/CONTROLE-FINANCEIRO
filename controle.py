@@ -157,8 +157,8 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # CAMPO EM BRANCO: valor=""
-    valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 1500,50") 
+    # MODIFICADO: Usando st.text_input vazio para entrada manual de moeda
+    valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 150,25") 
     
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
     
@@ -168,6 +168,7 @@ with st.form("form_transacao", clear_on_submit=True):
         # Tenta converter o valor do texto para float
         try:
             # LÓGICA DE PARSING CORRIGIDA: Remove pontos (milhares) e troca vírgula por ponto decimal
+            # Permite: 150,25 ou 1.500,25 ou 150.25
             clean_input = valor_input.replace('.', '').replace(',', '.')
             if not clean_input:
                 raise ValueError("Campo vazio")
@@ -345,7 +346,7 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # Mantendo o valor preenchido na edição com formato PT-BR
+                            # MODIFICADO: Usando st.text_input para edição com valor formatado em PT-BR
                             valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
                             novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
                             
