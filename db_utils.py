@@ -1,4 +1,4 @@
-# db_utils.py
+# db_utils.py (CORRIGIDO)
 import streamlit as st
 import pandas as pd
 import gspread
@@ -8,10 +8,10 @@ import uuid
 import time as t
 
 # --- CONFIGURAÇÃO DA PLANILHA ---
-SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" # MANTIDO SEU ID ANTIGO
+SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ"
 PLANILHA_NOME = "CONTROLE FINANCEIRO" 
-ABA_TRANSACOES = "TRANSACOES" # Nome da sua aba
-ABA_CATEGORIAS = "CATEGORIAS" # Nome da sua aba
+ABA_TRANSACOES = "TRANSACOES"
+ABA_CATEGORIAS = "CATEGORIAS"
 
 # --- GOVERNANÇA: FUNÇÃO DE AUTENTICAÇÃO COM CACHE E RETENTATIVA ---
 
@@ -30,7 +30,7 @@ def get_service_account_credentials():
         st.error(f"Erro Crítico de Autenticação: {e}")
         return None
 
-@st.cache_resource(ttl=3600) # Cache para a conexão principal
+@st.cache_resource(ttl=3600) # Cache para a conexão principal (Correto para recursos não-hashable)
 def conectar_sheets_resource():
     """Tenta conectar ao Google Sheets com lógica de Retentativa."""
     MAX_RETRIES = 3
@@ -57,8 +57,11 @@ def conectar_sheets_resource():
 # --- FUNÇÕES CORE: CRUD e Limpeza ---
 
 @st.cache_data(ttl=30) # Cache de dados para a UI
-def carregar_dados(spreadsheet):
+def carregar_dados(): # <--- PARÂMETRO 'spreadsheet' REMOVIDO AQUI
     """Lê todas as abas e aplica limpeza de dados e formatação."""
+    # OBTÉM A CONEXÃO DENTRO DA FUNÇÃO PARA EVITAR O ERRO UnhashableParamError
+    spreadsheet = conectar_sheets_resource() 
+    
     if spreadsheet is None:
         return pd.DataFrame(), pd.DataFrame()
         
@@ -88,6 +91,8 @@ def carregar_dados(spreadsheet):
 def adicionar_transacao(spreadsheet, dados_do_form):
     """Insere uma nova linha de transação no Sheets."""
     
+    # O resto das funções CRUD continuam recebendo 'spreadsheet' pois elas NÃO são cacheadas
+    # e precisam da conexão para ESCREVER (WRITE) na planilha.
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
