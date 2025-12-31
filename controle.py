@@ -1,4 +1,4 @@
-# controle.py (FINAL, COM CORREÇÃO DE PARSING QUE IGNORA LOCALE)
+# controle.py (FINAL, COM INPUT REESCRITO PARA REAIS/CENTAVOS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -21,42 +21,32 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÃO DE PARSING (A Solução Definitiva) ===
+# === FUNÇÕES DE PARSING E FORMATAÇÃO (Mantidas) ===
 # =================================================================
 
+# Mantemos a função, embora ela não será mais usada para parsing do input principal.
+# Ela ainda é útil para limpar os campos de edição, caso você volte a usá-los com vírgula.
 def parse_valor_monetario(valor_input):
     """
-    Converte strings monetárias BR (ex: '1.235,50') em float (Python/Sheets).
-    Esta versão é resiliente a problemas de locale/conversão automática.
+    Converte strings monetárias BR (ex: '1.235,50') em float.
+    Mantida como fallback de limpeza.
     """
     if not valor_input or valor_input.strip() == "":
         raise ValueError("Campo de valor vazio.")
         
     valor_str = valor_input.strip()
+    valor_str = valor_str.replace('.', '') # Remove separadores de milhar
+    valor_str = valor_str.replace(',', '.') # Troca vírgula decimal por ponto
     
-    # 1. Troca PONTOS por NADA (Remove separadores de milhar)
-    # Ex: '1.156,00' -> '1156,00'
-    valor_str = valor_str.replace('.', '')
-    
-    # 2. Troca VÍRGULAS por PONTO (Decimal)
-    # Ex: '1156,00' -> '1156.00'
-    valor_str = valor_str.replace(',', '.')
-    
-    # 3. Garante que só há um ponto decimal (caso a entrada fosse '1,1,56')
-    # O passo anterior garante que só há pontos, então podemos confiar.
-    
-    # 4. Converte para float
     try:
         return float(valor_str)
     except ValueError as e:
-        # Adiciona um print para debug, caso o erro persista
         print(f"DEBUG: Falha ao converter '{valor_str}' para float. Erro: {e}")
-        raise ValueError("Formato de valor inválido após limpeza. Use números e vírgulas/pontos.")
+        raise ValueError("Formato de valor inválido após limpeza.")
 
 
-# Função para formatar a moeda (exibição) - Usada nos Cards (Metrics) e tabelas
+# Função para formatar a moeda (exibição)
 def format_currency(value):
-    # Converte para string US (1,234.56), troca os separadores para BR (1.234,56)
     return f"R$ {value:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
 
 # =================================================================
@@ -185,7 +175,7 @@ df_transacoes = carregar_dados()
 st.header("📥 Registrar Nova Transação")
 
 with st.form("form_transacao", clear_on_submit=True):
-    col_c1, col_c2, col_c3 = st.columns(3)
+    col_c1, col_c2, col_c3, col_c4 = st.columns([1, 1, 1.5, 0.5]) # Adiciona mais uma coluna para os centavos
     
     mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
     mes_referencia_c = col_c1.selectbox(
@@ -196,21 +186,34 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # st.text_input é OBRIGATÓRIO para aceitar a vírgula
-    valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 235,50 ou 1.235,50") 
+    # NOVAS ENTRADAS: Reais (número inteiro) e Centavos (número inteiro 0-99)
+    reais_input = col_c3.number_input(
+        "Valor (R$ - Reais)", 
+        min_value=0, 
+        value=0, 
+        step=1, 
+        format="%d", 
+        key="reais_c"
+    )
+    
+    centavos_input = col_c4.number_input(
+        "Centavos", 
+        min_value=0, 
+        max_value=99, 
+        value=0, 
+        step=1, 
+        format="%d", 
+        key="centavos_c"
+    )
     
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
     
     submitted = st.form_submit_button("Lançar Transação!")
     
     if submitted:
-        # Tenta converter o valor do texto para float usando a função de parse
-        try:
-            valor = parse_valor_monetario(valor_input)
-
-        except ValueError as ve:
-            st.warning(f"O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Transação não lançada. ({ve})")
-            st.stop() 
+        
+        # Reconstrução do valor float (que agora é garantidamente um float correto)
+        valor = reais_input + (centavos_input / 100)
         
         if descricao and valor > 0:
             data_to_save = {
@@ -353,8 +356,12 @@ else:
                             
                             try:
                                 valor_existente = float(transacao_dados['Valor']) 
+                                # Separando o valor existente para o novo input
+                                reais_existentes = int(valor_existente)
+                                centavos_existentes = int(round((valor_existente - reais_existentes) * 100))
                             except (ValueError, TypeError):
-                                valor_existente = 0.0 
+                                reais_existentes = 0
+                                centavos_existentes = 0
                             
                             col_upd_1, col_upd_2 = st.columns(2)
                             
@@ -377,24 +384,38 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # st.text_input para edição
-                            valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
-                            novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
+                            # NOVOS CAMPOS DE EDIÇÃO
+                            col_upd_v1, col_upd_v2 = st.columns([2, 1])
+                            
+                            novo_reais_input = col_upd_v1.number_input(
+                                "Valor (R$ - Reais)", 
+                                min_value=0, 
+                                value=reais_existentes, 
+                                step=1, 
+                                format="%d", 
+                                key="ut_reais_c"
+                            )
+
+                            novo_centavos_input = col_upd_v2.number_input(
+                                "Centavos", 
+                                min_value=0, 
+                                max_value=99, 
+                                value=centavos_existentes, 
+                                step=1, 
+                                format="%d", 
+                                key="ut_centavos_c"
+                            )
                             
                             novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
                             
                             update_button = st.form_submit_button("Salvar Atualizações (Update)")
 
                             if update_button:
-                                # Tenta converter o valor do texto para float usando a função de parse
-                                try:
-                                    novo_valor = parse_valor_monetario(novo_valor_input)
-                                    
-                                except ValueError as ve:
-                                    st.warning(f"O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Atualização não realizada. ({ve})")
-                                    st.stop()
                                 
-                                if novo_descricao and novo_valor > 0:
+                                # Reconstrução do novo valor float
+                                novo_valor = novo_reais_input + (novo_centavos_input / 100)
+                                
+                                if novo_descricao and novo_valor >= 0:
                                     dados_atualizados = {
                                         'ID Transacao': transacao_selecionada_id, 
                                         'Descricao': novo_descricao,
@@ -405,7 +426,7 @@ else:
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
                                     t.sleep(1)
                                 else:
-                                    st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios na atualização.")
+                                    st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
 
                     with col_d:
                         st.markdown("##### Excluir")
