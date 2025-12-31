@@ -127,7 +127,7 @@ if spreadsheet is None:
     st.stop() 
 
 # Auto-Refresh de 10 segundos
-st_autorefresh(interval=10000, key="data_refresh_key_simple")
+st_autorefresh(interval=20000, key="data_refresh_key_simple")
 st.sidebar.info("🔄 Atualização automática a cada 10 segundos.")
 
 # Carregamento de Dados
