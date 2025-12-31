@@ -1,2 +1,13 @@
+# .streamlit/config.toml
+
 [theme]
-base="dark"
+# A cor base deve ser 'dark' para o modo escuro
+base="dark" 
+# Usar uma cor primária escura ou neutra (opcional, mas recomendado)
+primaryColor="#FA3710" 
+# Cor de fundo principal (opcional: um cinza escuro de sua preferência)
+backgroundColor="#0E1117" 
+# Cor do background dos elementos (selectbox, sidebar, etc.)
+secondaryBackgroundColor="#262730"
+# Cor do texto
+textColor="#FAFAFA"
