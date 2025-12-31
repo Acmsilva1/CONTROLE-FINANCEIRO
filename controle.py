@@ -54,79 +54,85 @@ else:
         def handle_submission(data_dict, success_message):
             if save_transaction_to_gsheets(data_dict):
                 st.success(success_message)
-                # O RERUN É CRÍTICO para buscar os dados novos
-                time.sleep(1) # Pequena pausa para garantir que o sucesso seja exibido
+                time.sleep(1) 
                 st.rerun() 
             else:
                 st.error("Falha ao salvar. Verifique o log.")
 
-        # --- CRIAÇÃO DAS ABAS (DASHBOARD E INSERÇÃO) ---
-        tab_dashboard, tab_insercao = st.tabs(["📊 Dashboard: Indicadores de Comando", "📥 Inserção de Novas Transações"])
+        
+        # =================================================================
+        # === CONTEÚDO UNIFICADO DA TELA INICIAL ===
+        # =================================================================
 
-        # --- ABA 1: DASHBOARD DE MÉTRICAS (KPIs) ---
-        with tab_dashboard:
-            st.header(f"KPIs do Período: {selected_period}")
+        st.header(f"📊 Dashboard: Indicadores de Comando ({selected_period})")
             
-            # Cálculo das Métricas
-            total_receita = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
-            total_despesa = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
-            margem_liquida = total_receita - total_despesa
-            
-            margem_delta_color = "inverse" if margem_liquida < 0 else "normal"
+        # Cálculo das Métricas
+        total_receita = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
+        total_despesa = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
+        margem_liquida = total_receita - total_despesa
+        
+        margem_delta_color = "inverse" if margem_liquida < 0 else "normal"
 
-            col1, col2, col3 = st.columns(3)
-            
-            col1.metric("Total de Receitas", f"R$ {total_receita:,.2f}", delta="Caminho do Sucesso")
-            col2.metric("Total de Despesas", f"R$ {total_despesa:,.2f}", delta="O Burocrata do Seu Bolso")
-            col3.metric("Margem Líquida", 
-                        f"R$ {margem_liquida:,.2f}", 
-                        delta=f"{'NEGATIVA' if margem_liquida < 0 else 'POSITIVA'} - A Realidade Financeira", 
-                        delta_color=margem_delta_color)
+        col1, col2, col3 = st.columns(3)
+        
+        col1.metric("Total de Receitas", f"R$ {total_receita:,.2f}", delta="Caminho do Sucesso")
+        col2.metric("Total de Despesas", f"R$ {total_despesa:,.2f}", delta="O Burocrata do Seu Bolso")
+        col3.metric("Margem Líquida", 
+                    f"R$ {margem_liquida:,.2f}", 
+                    delta=f"{'NEGATIVA' if margem_liquida < 0 else 'POSITIVA'} - A Realidade Financeira", 
+                    delta_color=margem_delta_color)
 
-            st.markdown("---")
-            
-            st.subheader("Onde o dinheiro REALMENTE está indo? (Gráfico de Despesas)")
-            df_gastos = df_filtrado[df_filtrado['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum().sort_values(ascending=False)
-            st.bar_chart(df_gastos)
-            
-            st.markdown("---")
-            
-            # --- TABELA DE REGISTROS FILTRADOS ---
-            st.subheader(f"📑 Registros de Transações ({selected_period})")
-            df_display = df_filtrado[['Data', 'Descricao', 'Valor', 'Tipo', 'Categoria', 'Conta/Meio', 'Status']]
-            # Formata a coluna Data para o padrão brasileiro de exibição
-            df_display['Data'] = df_display['Data'].dt.strftime('%d/%m/%Y') 
-            st.dataframe(df_display, use_container_width=True)
+        st.markdown("---")
+        
+        st.subheader("Onde o dinheiro REALMENTE está indo? (Gráfico de Despesas)")
+        df_gastos = df_filtrado[df_filtrado['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum().sort_values(ascending=False)
+        st.bar_chart(df_gastos)
+        
+        st.markdown("---")
+        
+        # --- TABELA DE REGISTROS FILTRADOS ---
+        st.subheader(f"📑 Registros de Transações ({selected_period})")
+        df_display = df_filtrado[['Data', 'Descricao', 'Valor', 'Tipo', 'Categoria', 'Conta/Meio', 'Status']]
+        df_display['Data'] = df_display['Data'].dt.strftime('%d/%m/%Y') 
+        st.dataframe(df_display, use_container_width=True)
 
+        st.markdown("#") # Espaço
+        st.markdown("#") # Espaço
+        st.markdown("---") 
 
-        # --- ABA 2: FORMULÁRIOS DE INSERÇÃO ---
-        with tab_insercao:
-            st.header("Operações Manuais: Alimentando a Máquina de Dados")
+        st.header("📥 Inserção de Novas Transações")
+        st.caption("Use os formulários abaixo para alimentar a máquina de dados.")
+        
+        # --- BLOCO 1: ADICIONAR RECEITAS ---
+        with st.form("form_receita", clear_on_submit=True):
+            st.subheader("💰 Adicionar Receita")
+            col_r1, col_r2 = st.columns(2)
+            descricao = col_r1.text_input("Descrição da Receita", key="desc_r")
+            valor = col_r2.number_input("Valor Recebido (R$)", min_value=0.01, format="%.2f", key="val_r")
+            col_r3, col_r4 = st.columns(2)
+            categoria = col_r3.selectbox("Categoria", options=all_receita_cats, key="cat_r")
+            conta = col_r4.text_input("Conta/Meio", key="cont_r")
             
-            # --- BLOCO 1: ADICIONAR RECEITAS ---
-            with st.form("form_receita", clear_on_submit=True):
-                st.subheader("💰 Adicionar Receita")
-                col_r1, col_r2 = st.columns(2)
-                descricao = col_r1.text_input("Descrição da Receita", key="desc_r")
-                valor = col_r2.number_input("Valor Recebido (R$)", min_value=0.01, format="%.2f", key="val_r")
-                col_r3, col_r4 = st.columns(2)
-                categoria = col_r3.selectbox("Categoria", options=all_receita_cats, key="cat_r")
-                conta = col_r4.text_input("Conta/Meio", key="cont_r")
-                data = st.date_input("Data de Recebimento", value=datetime.now().date(), key="data_r")
-                submitted = st.form_submit_button("Lançar Receita!")
-                
-                if submitted:
-                    data_to_save = {
-                        # CORREÇÃO CRÍTICA: Formata a data para DD/MM/YYYY para o Sheets
-                        "Data": data.strftime('%d/%m/%Y'), 
-                        "Descricao": descricao, "Valor": valor,
-                        "Tipo": "Receita", "Categoria": categoria, "Subcategoria": "", 
-                        "Conta/Meio": conta, "Status": "Compensado" 
-                    }
-                    handle_submission(data_to_save, f"Receita '{descricao}' (R$ {valor:,.2f}) registrada com sucesso!")
+            # Formato de data visual americano (limitação do Streamlit, mas o salvamento é BR)
+            data = st.date_input("Data de Recebimento", 
+                                 value=datetime.now().date(), 
+                                 key="data_r") 
+            
+            submitted = st.form_submit_button("Lançar Receita!")
+            
+            if submitted:
+                data_to_save = {
+                    # CORREÇÃO CRÍTICA: O formato para SALVAR no Sheets é sempre DD/MM/YYYY
+                    "Data": data.strftime('%d/%m/%Y'), 
+                    "Descricao": descricao, "Valor": valor,
+                    "Tipo": "Receita", "Categoria": categoria, "Subcategoria": "", 
+                    "Conta/Meio": conta, "Status": "Compensado" 
+                }
+                handle_submission(data_to_save, f"Receita '{descricao}' (R$ {valor:,.2f}) registrada com sucesso!")
 
-            st.markdown("---")
-            # ... (Adicionar form_fixa e form_variavel aqui) ...
+        st.markdown("---")
+        # ... (Adicionar form_fixa e form_variavel aqui) ...
+        # Lembre-se de usar a função 'handle_submission' nos outros formulários!
 
         # --- FIM DO CÓDIGO DO APLICATIVO ---
 
@@ -136,6 +142,6 @@ else:
         st.markdown("---")
 
 # --- REFRESH AUTOMÁTICO (NO FIM DO SCRIPT) ---
-if not df_transacoes.empty: # Não reinicia o app se não houver dados (para evitar loop)
-    time.sleep(20) # Pausa o script por 20 segundos
-    st.rerun() # Força o recarregamento
+if not df_transacoes.empty:
+    time.sleep(30) 
+    st.rerun()
