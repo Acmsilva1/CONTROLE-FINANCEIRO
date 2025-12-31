@@ -1,9 +1,9 @@
-# controle.py
+# controle.py (CORRIGIDO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime, time, date
 import uuid
-import time as t # Usado para o sleep após a submissão para garantir que a mensagem de sucesso seja vista
+import time as t
 
 # Importa a lógica refatorada (db_utils.py deve estar na mesma pasta!)
 from db_utils import conectar_sheets_resource, carregar_dados, adicionar_transacao, atualizar_transacao, deletar_transacao 
@@ -20,7 +20,7 @@ if spreadsheet is None:
     st.stop() # Para o aplicativo se a conexão falhar
 
 # Carregamento de Dados (cached data)
-df_transacoes, df_categorias = carregar_dados(spreadsheet)
+df_transacoes, df_categorias = carregar_dados() # <--- CHAMADA CORRIGIDA (SEM PARÂMETRO)
 
 
 # --- DASHBOARD E FILTROS ---
@@ -202,7 +202,10 @@ else:
             
             def formatar_selecao_transacao(id_val):
                 df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0]
-                return f"{df_linha['Descricao']} ({df_linha['Valor']:,.2f} - {id_val[:4]}...)"
+                # Acesso seguro ao Valor, formatado para exibição
+                valor_formatado = f"{df_linha['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
+                return f"{df_linha['Descricao']} (R$ {valor_formatado} - {id_val[:4]}...)"
+
 
             transacao_selecionada_id = st.selectbox(
                 "Selecione a Transação para Ação (Edição/Exclusão):",
