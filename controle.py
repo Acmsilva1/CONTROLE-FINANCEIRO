@@ -1,4 +1,4 @@
-# controle.py (FINAL, COM INPUT REESCRITO PARA REAIS/CENTAVOS)
+# controle.py (FINAL, COM INPUT VAZIO E LÓGICA DE VALIDAÇÃO DE ZERO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -24,12 +24,9 @@ MESES_PT = {
 # === FUNÇÕES DE PARSING E FORMATAÇÃO (Mantidas) ===
 # =================================================================
 
-# Mantemos a função, embora ela não será mais usada para parsing do input principal.
-# Ela ainda é útil para limpar os campos de edição, caso você volte a usá-los com vírgula.
 def parse_valor_monetario(valor_input):
     """
-    Converte strings monetárias BR (ex: '1.235,50') em float.
-    Mantida como fallback de limpeza.
+    Função mantida como fallback de limpeza de string.
     """
     if not valor_input or valor_input.strip() == "":
         raise ValueError("Campo de valor vazio.")
@@ -175,7 +172,7 @@ df_transacoes = carregar_dados()
 st.header("📥 Registrar Nova Transação")
 
 with st.form("form_transacao", clear_on_submit=True):
-    col_c1, col_c2, col_c3, col_c4 = st.columns([1, 1, 1.5, 0.5]) # Adiciona mais uma coluna para os centavos
+    col_c1, col_c2, col_c3, col_c4 = st.columns([1, 1, 1.5, 0.5]) 
     
     mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
     mes_referencia_c = col_c1.selectbox(
@@ -186,11 +183,11 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # NOVAS ENTRADAS: Reais (número inteiro) e Centavos (número inteiro 0-99)
+    # NOVAS ENTRADAS: Reais (sem valor inicial)
     reais_input = col_c3.number_input(
         "Valor (R$ - Reais)", 
         min_value=0, 
-        value=0, 
+        value=None,  # Alterado para None
         step=1, 
         format="%d", 
         key="reais_c"
@@ -200,7 +197,7 @@ with st.form("form_transacao", clear_on_submit=True):
         "Centavos", 
         min_value=0, 
         max_value=99, 
-        value=0, 
+        value=None,  # Alterado para None
         step=1, 
         format="%d", 
         key="centavos_c"
@@ -212,8 +209,12 @@ with st.form("form_transacao", clear_on_submit=True):
     
     if submitted:
         
-        # Reconstrução do valor float (que agora é garantidamente um float correto)
-        valor = reais_input + (centavos_input / 100)
+        # Trata o valor None como 0 para o cálculo
+        reais_final = reais_input if reais_input is not None else 0
+        centavos_final = centavos_input if centavos_input is not None else 0
+        
+        # Reconstrução do valor float
+        valor = reais_final + (centavos_final / 100)
         
         if descricao and valor > 0:
             data_to_save = {
@@ -360,8 +361,8 @@ else:
                                 reais_existentes = int(valor_existente)
                                 centavos_existentes = int(round((valor_existente - reais_existentes) * 100))
                             except (ValueError, TypeError):
-                                reais_existentes = 0
-                                centavos_existentes = 0
+                                reais_existentes = None # O valor inicial deve ser None
+                                centavos_existentes = None # O valor inicial deve ser None
                             
                             col_upd_1, col_upd_2 = st.columns(2)
                             
@@ -384,13 +385,15 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # NOVOS CAMPOS DE EDIÇÃO
+                            # NOVOS CAMPOS DE EDIÇÃO (Agora com valores iniciais corretos)
                             col_upd_v1, col_upd_v2 = st.columns([2, 1])
                             
+                            # Para edição, precisamos passar um valor (o valor_existente), 
+                            # mas se o valor não existir no df, usamos None
                             novo_reais_input = col_upd_v1.number_input(
                                 "Valor (R$ - Reais)", 
                                 min_value=0, 
-                                value=reais_existentes, 
+                                value=reais_existentes, # Valor existente ou None
                                 step=1, 
                                 format="%d", 
                                 key="ut_reais_c"
@@ -400,7 +403,7 @@ else:
                                 "Centavos", 
                                 min_value=0, 
                                 max_value=99, 
-                                value=centavos_existentes, 
+                                value=centavos_existentes, # Valor existente ou None
                                 step=1, 
                                 format="%d", 
                                 key="ut_centavos_c"
@@ -412,8 +415,12 @@ else:
 
                             if update_button:
                                 
+                                # Trata o valor None como 0 para o cálculo na edição
+                                novo_reais_final = novo_reais_input if novo_reais_input is not None else 0
+                                novo_centavos_final = novo_centavos_input if novo_centavos_input is not None else 0
+                                
                                 # Reconstrução do novo valor float
-                                novo_valor = novo_reais_input + (novo_centavos_input / 100)
+                                novo_valor = novo_reais_final + (novo_centavos_final / 100)
                                 
                                 if novo_descricao and novo_valor >= 0:
                                     dados_atualizados = {
