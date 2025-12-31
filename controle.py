@@ -21,38 +21,26 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÃO DE PARSING REFORÇADA (Onde a Mágica Acontece) ===
+# === FUNÇÃO DE PARSING (A Chave da Solução) ===
 # =================================================================
 
 def parse_valor_monetario(valor_input):
     """
-    Função de governança para converter strings monetárias (BR) em float (Python).
-    Lógica: Limpa a string e garante que a vírgula (decimal) seja convertida em ponto.
-    Ex: '1.235,50' -> 1235.50
+    Converte strings monetárias BR (ex: '1.235,50') em float (Python/Sheets).
+    Remove pontos de milhar e troca vírgula decimal por ponto.
     """
     if not valor_input or valor_input.strip() == "":
         raise ValueError("Campo de valor vazio.")
         
-    # 1. Remove caracteres não numéricos permitidos (R$, espaços, etc.)
-    # Mantemos apenas números, ponto (.) e vírgula (,)
-    clean_input = "".join(filter(lambda x: x.isdigit() or x in (',', '.'), valor_input))
+    # 1. Remove pontos (separadores de milhar)
+    clean_input = valor_input.strip().replace('.', '')
     
-    # 2. Tenta identificar se o formato é brasileiro (vírgula como decimal) ou americano (ponto como decimal)
+    # 2. Substitui a vírgula (separador decimal brasileiro) pelo ponto decimal do Python
+    clean_input = clean_input.replace(',', '.')
     
-    if ',' in clean_input and '.' in clean_input:
-        # Caso de 1.234,50 (Ponto de milhar e vírgula decimal)
-        # Remove o ponto (milhar) e troca a vírgula (decimal) por ponto.
-        clean_input = clean_input.replace('.', '')
-        clean_input = clean_input.replace(',', '.')
-    elif ',' in clean_input:
-        # Caso de 10,50 (Vírgula decimal)
-        clean_input = clean_input.replace(',', '.')
-        
-    # Se o formato for 10.50 (ponto decimal, sem vírgula) ou 10 (apenas inteiro),
-    # o string já está no formato float correto.
-    
-    # 3. Tenta converter para float
+    # 3. Converte para float
     return float(clean_input)
+
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA (inalteradas) ===
@@ -191,7 +179,7 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # CHAVE DA CORREÇÃO: Usando st.text_input para aceitar a vírgula
+    # st.text_input é OBRIGATÓRIO para aceitar a vírgula
     valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 235,50 ou 1.235,50") 
     
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
@@ -201,7 +189,7 @@ with st.form("form_transacao", clear_on_submit=True):
     if submitted:
         # Tenta converter o valor do texto para float usando a função de parse
         try:
-            valor = parse_valor_monetario(valor_input) # <--- CHAMA A FUNÇÃO CORRIGIDA
+            valor = parse_valor_monetario(valor_input)
 
         except ValueError:
             st.warning("O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Transação não lançada.")
@@ -378,7 +366,7 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", opcoes_categoria, index=cat_index, key='ut_tipo_c')
                             
-                            # CHAVE DA CORREÇÃO: Usando st.text_input para edição e exibindo valor formatado em PT-BR
+                            # st.text_input para edição, exibindo valor formatado em PT-BR
                             valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
                             novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
                             
@@ -389,7 +377,7 @@ else:
                             if update_button:
                                 # Tenta converter o valor do texto para float usando a função de parse
                                 try:
-                                    novo_valor = parse_valor_monetario(novo_valor_input) # <--- CHAMA A FUNÇÃO CORRIGIDA
+                                    novo_valor = parse_valor_monetario(novo_valor_input)
                                     
                                 except ValueError:
                                     st.warning("O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Atualização não realizada.")
