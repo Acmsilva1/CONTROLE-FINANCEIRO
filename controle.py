@@ -1,4 +1,4 @@
-# controle.py (FINAL, COM INPUT REAIS/CENTAVOS E FORMATO DE EXIBIÇÃO SIMPLIFICADO)
+# controle.py (FINAL, COM FORMATAÇÃO DE OUTPUT FORÇADA E SEGURA)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -21,22 +21,43 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÃO DE FORMATAÇÃO (SIMPLIFICADA) ===
+# === FUNÇÃO DE FORMATAÇÃO (REFORÇADA) ===
 # =================================================================
 
-# FUNÇÃO SIMPLIFICADA: Apenas garante duas casas decimais. 
-# O separador (ponto ou vírgula) será definido pelo LOCALE do seu Streamlit/navegador.
 def format_currency(value):
     """
-    Formata um float (ex: 11.56) para string monetária (ex: R$ 11.56 ou R$ 11,56).
+    Formata um float (ex: 11.56) para string monetária BR (R$ 11,56)
+    forçando o uso de ponto (.) como separador decimal.
     """
-    if value is None:
-        return "R$ 0.00"
+    if value is None or value == 0.0:
+        return "R$ 0,00"
         
-    # Usa o f-string padrão com duas casas decimais.
-    # O separador de decimal será o padrão do ambiente (que pode ser ponto ou vírgula).
-    # O importante é que a precisão (0.56) está garantida.
-    return f"R$ {value:,.2f}"
+    # 1. Converte o float para string garantindo duas casas decimais (Ex: '11.56')
+    # Usamos o format(value, '.2f') para garantir o ponto como decimal
+    # e evitamos separadores de milhar neste passo.
+    valor_str = "{:.2f}".format(value)
+    
+    # 2. Separa a parte inteira e a parte decimal
+    partes = valor_str.split('.')
+    reais = partes[0]
+    centavos = partes[1]
+    
+    # 3. Formata a parte inteira (reais) com separador de milhar BR (ponto)
+    # Ex: '1156' -> '1.156' (Se fosse esse o valor, no caso é '11')
+    
+    reais_formatados = []
+    # Itera de 3 em 3 dígitos do final para o começo
+    for i in range(len(reais), 0, -3):
+        start = max(0, i - 3)
+        reais_formatados.insert(0, reais[start:i])
+        
+    reais_com_ponto = ".".join(reais_formatados) # Ex: '11' ou '1.156'
+    
+    # 4. Junta tudo com a vírgula decimal
+    valor_final = f"{reais_com_ponto},{centavos}"
+    
+    # 5. Adiciona o símbolo R$
+    return f"R$ {valor_final}"
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA (inalteradas) ===
@@ -175,7 +196,7 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # NOVAS ENTRADAS: Reais/Centavos
+    # ENTRADAS: Reais/Centavos
     reais_input = col_c3.number_input(
         "Valor (R$ - Reais)", 
         min_value=0, 
