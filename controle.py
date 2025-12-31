@@ -1,4 +1,4 @@
-# controle.py (FINAL, FILTRAGEM POR MÊS E NOME DE COLUNA ATUALIZADO)
+# controle.py (FINAL, FILTRAGEM POR MÊS E TABELAS SEPARADAS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -11,7 +11,6 @@ from google.oauth2 import service_account
 # --- CONFIGURAÇÕES DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
 ABA_TRANSACOES = "TRANSACOES" 
-# ALTERAÇÃO: Nome da coluna de 'Mes Referencia' para 'Mês'
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor']
 
 # Lista de meses em português para uso na UI e como chave de ordenação
@@ -70,10 +69,8 @@ def carregar_dados():
         if not df_transacoes.empty:
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
-            # ATUALIZADO: Dropna usa a nova coluna 'Mês'
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             
-            # Adiciona coluna numérica para ordenação
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
 
         return df_transacoes
@@ -87,7 +84,6 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     """Insere uma nova linha de transação no Sheets."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
-        # Usa a ordem da COLUNAS_SIMPLIFICADAS atualizada
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         sheet.append_row(nova_linha)
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
@@ -103,7 +99,6 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
-        # Usa a ordem da COLUNAS_SIMPLIFICADAS atualizada
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
         sheet.update(f'A{linha_index}', [valores_atualizados])
@@ -171,7 +166,7 @@ with st.form("form_transacao", clear_on_submit=True):
         if descricao and valor:
             data_to_save = {
                 "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
-                "Mês": mes_referencia_c, # CAMPO ATUALIZADO
+                "Mês": mes_referencia_c,
                 "Descricao": descricao, 
                 "Categoria": categoria, 
                 "Valor": valor
@@ -192,7 +187,6 @@ else:
     
     st.sidebar.header("🗓️ Filtro de Período")
     
-    # ATUALIZADO: Filtro baseado na coluna 'Mês'
     meses_disponiveis = df_transacoes[['Mês', 'Mes_Num']].drop_duplicates().sort_values(by='Mes_Num', ascending=False)['Mês'].tolist()
     
     if meses_disponiveis:
@@ -201,7 +195,6 @@ else:
         selected_month = None
 
     if selected_month:
-        # ATUALIZADO: Aplica o filtro na coluna 'Mês'
         df_filtrado = df_transacoes[df_transacoes['Mês'] == selected_month].copy()
     else:
         df_filtrado = pd.DataFrame() 
@@ -228,18 +221,48 @@ else:
 
         st.markdown("---")
         
-        # === VISUALIZAÇÃO DA TABELA (READ) ===
+        # === VISUALIZAÇÃO DA TABELA (READ) - MODIFICADA PARA 2 TABELAS ===
 
-        st.subheader(f"📑 Registros de Transações ({selected_month})")
+        st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
-        df_display = df_filtrado[COLUNAS_SIMPLIFICADAS].copy()
-        
-        df_display['Valor'] = df_display.apply(
-            lambda row: f"R$ {row['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ','), axis=1
+        # 1. Preparar data para exibição (formatar valor)
+        df_base_display = df_filtrado.copy()
+        df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(
+            lambda v: f"R$ {v:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
         )
         
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        # 2. Filtrar em Receita e Despesa
+        df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
+        df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
+        
+        # Colunas a serem exibidas nas tabelas separadas
+        DISPLAY_COLUMNS = ['Descricao', 'Valor_Formatado']
 
+        # 3. Exibir lado a lado
+        col_rec, col_des = st.columns(2)
+
+        with col_rec:
+            st.markdown("##### 🟢 Receitas (Entradas)")
+            if df_receitas.empty:
+                st.info("Nenhuma Receita registrada para este mês.")
+            else:
+                st.dataframe(
+                    df_receitas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
+                    use_container_width=True, 
+                    hide_index=True
+                )
+
+        with col_des:
+            st.markdown("##### 🔴 Despesas (Saídas)")
+            if df_despesas.empty:
+                st.info("Nenhuma Despesa registrada para este mês.")
+            else:
+                st.dataframe(
+                    df_despesas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
+                    use_container_width=True, 
+                    hide_index=True
+                )
+        
         st.markdown("---") 
 
         # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) ===
@@ -248,13 +271,14 @@ else:
         
         with st.expander("📝 Gerenciar Transação", expanded=True):
             
+            # Continua usando todas as transações do mês para seleção (independentemente da tabela)
             transacoes_atuais = df_filtrado['ID Transacao'].tolist()
             
             def formatar_selecao_transacao(id_val):
                 try:
-                    df_linha = df_filtrado[df_filtrado['ID Transacao'] == id_val].iloc[0]
+                    # Usa o DataFrame completo aqui para garantir que encontra o registro mesmo se o filtro mudar
+                    df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
                     valor_formatado = f"{df_linha['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-                    # ATUALIZADO: Exibe a coluna 'Mês'
                     return f"{df_linha['Descricao']} ({df_linha['Mês']} | R$ {valor_formatado})"
                 except:
                     return f"ID Inconsistente ({id_val[:4]}...)"
@@ -284,7 +308,6 @@ else:
                         with st.form("form_update_transacao_c"):
                             
                             categoria_existente = transacao_dados['Categoria']
-                            # ATUALIZADO: Lê a coluna 'Mês'
                             mes_existente = transacao_dados['Mês']
                             
                             try:
@@ -294,7 +317,6 @@ else:
                             
                             col_upd_1, col_upd_2 = st.columns(2)
                             
-                            # Selectbox de Meses na edição
                             try:
                                 mes_idx = list(MESES_PT.values()).index(mes_existente)
                             except ValueError:
@@ -327,7 +349,7 @@ else:
                                         'Descricao': novo_descricao,
                                         'Valor': novo_valor,
                                         'Categoria': novo_categoria,
-                                        'Mês': novo_mes, # CAMPO ATUALIZADO
+                                        'Mês': novo_mes,
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
                                     t.sleep(1)
