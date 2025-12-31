@@ -1,4 +1,4 @@
-# controle.py (FINAL, ROBUSTO E COM UNFORMATTED_VALUE DO GSHEETS)
+# controle.py (FINAL 3: Conversão de String BR Otimizada)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -62,17 +62,30 @@ def format_value_for_sheets(value):
     # Troca o ponto decimal por vírgula decimal (formato BR)
     return valor_str.replace('.', ',')
 
-def convert_unformatted_value(valor_str):
+def limpar_e_converter_valor_br(valor_entrada):
     """
-    Converte a string US ('11.56') lida do Sheets com UNFORMATTED_VALUE para float.
-    Esta função assume o ponto como separador decimal.
+    Converte uma string monetária BR (ex: '11,56' ou '1.156,00') em float (11.56).
     """
-    if pd.isna(valor_str) or valor_str is None or str(valor_str).strip() == "":
+    valor_str = str(valor_entrada)
+    
+    if not valor_str.strip():
         return 0.0
+
+    # 1. Remove quaisquer caracteres de moeda (R$, €) ou espaços
+    valor_limpo = valor_str.strip().replace('R$', '').replace('€', '').strip()
+
+    # 2. Se houver vírgula, assume-se BR (milhar com ponto, decimal com vírgula)
+    if ',' in valor_limpo:
+        # Remove todos os pontos (milhares)
+        valor_limpo = valor_limpo.replace('.', '')
+        # Troca a vírgula (decimal BR) por ponto (decimal Python)
+        valor_limpo = valor_limpo.replace(',', '.')
+    # 3. Se não houver vírgula, tenta converter diretamente (assumindo US ou inteiro)
+    
     try:
-        # Apenas converte para float, pois UNFORMATTED_VALUE já garante o ponto decimal.
-        return float(str(valor_str))
+        return float(valor_limpo)
     except ValueError:
+        # Se a conversão falhar (ex: texto), retorna zero
         return 0.0 
 
 # =================================================================
@@ -113,31 +126,18 @@ def conectar_sheets_resource():
 
 @st.cache_data(ttl=10) 
 def carregar_dados(): 
-    """Lê a aba TRANSACOES forçando o valor não formatado (UNFORMATTED_VALUE)."""
+    """Lê a aba TRANSACOES usando get_all_records() e conversão manual de string BR."""
     spreadsheet = conectar_sheets_resource() 
     if spreadsheet is None:
         return pd.DataFrame()
         
     try:
-        # CRÍTICO: Pede o valor NÃO FORMATADO. O Sheets retorna uma string com PONTO decimal.
-        data = spreadsheet.worksheet(ABA_TRANSACOES).get_all_values(
-            value_render_option='UNFORMATTED_VALUE'
-        )
-
-        if not data or len(data) <= 1:
-            return pd.DataFrame()
-            
-        header = data[0]
-        records = data[1:] 
-        
-        # Cria o DataFrame
-        df_transacoes = pd.DataFrame(records, columns=header) 
+        df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
 
         if not df_transacoes.empty:
             
-            # --- CONVERSÃO SIMPLES ---
-            # O valor já veio com ponto decimal, basta converter diretamente.
-            df_transacoes['Valor'] = df_transacoes['Valor'].apply(convert_unformatted_value)
+            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL OTIMIZADA ---
+            df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor_br)
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
