@@ -1,4 +1,4 @@
-# controle.py (FINAL, ROBUSTO E COM LIMPEZA MANUAL DE LOCALIZAÇÃO)
+# controle.py (FINAL, ROBUSTO E COM UNFORMATTED_VALUE DO GSHEETS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -62,21 +62,16 @@ def format_value_for_sheets(value):
     # Troca o ponto decimal por vírgula decimal (formato BR)
     return valor_str.replace('.', ',')
 
-def limpar_e_converter_valor(valor_str):
+def convert_unformatted_value(valor_str):
     """
-    Converte a string BR ('11,56' ou '1.156,00') lida do Sheets para float (11.56) 
-    através da limpeza manual (robusto para versões antigas do Pandas).
+    Converte a string US ('11.56') lida do Sheets com UNFORMATTED_VALUE para float.
+    Esta função assume o ponto como separador decimal.
     """
     if pd.isna(valor_str) or valor_str is None or str(valor_str).strip() == "":
         return 0.0
-        
-    # Remove separadores de milhar (ponto, se houver)
-    valor_limpo = str(valor_str).replace('.', '')
-    # Troca a vírgula decimal (BR) por ponto decimal (Python/Pandas)
-    valor_limpo = valor_limpo.replace(',', '.')
-    
     try:
-        return float(valor_limpo)
+        # Apenas converte para float, pois UNFORMATTED_VALUE já garante o ponto decimal.
+        return float(str(valor_str))
     except ValueError:
         return 0.0 
 
@@ -118,18 +113,31 @@ def conectar_sheets_resource():
 
 @st.cache_data(ttl=10) 
 def carregar_dados(): 
-    """Lê a aba TRANSACOES e retorna como DataFrame, usando limpeza manual (limpar_e_converter_valor)."""
+    """Lê a aba TRANSACOES forçando o valor não formatado (UNFORMATTED_VALUE)."""
     spreadsheet = conectar_sheets_resource() 
     if spreadsheet is None:
         return pd.DataFrame()
         
     try:
-        df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
+        # CRÍTICO: Pede o valor NÃO FORMATADO. O Sheets retorna uma string com PONTO decimal.
+        data = spreadsheet.worksheet(ABA_TRANSACOES).get_all_values(
+            value_render_option='UNFORMATTED_VALUE'
+        )
+
+        if not data or len(data) <= 1:
+            return pd.DataFrame()
+            
+        header = data[0]
+        records = data[1:] 
+        
+        # Cria o DataFrame
+        df_transacoes = pd.DataFrame(records, columns=header) 
 
         if not df_transacoes.empty:
             
-            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL ---
-            df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor)
+            # --- CONVERSÃO SIMPLES ---
+            # O valor já veio com ponto decimal, basta converter diretamente.
+            df_transacoes['Valor'] = df_transacoes['Valor'].apply(convert_unformatted_value)
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
