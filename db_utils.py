@@ -5,7 +5,6 @@ import gspread
 from google.oauth2 import service_account
 from datetime import datetime
 import uuid
-import json
 
 # --- CONFIGURAÇÃO DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
@@ -16,26 +15,26 @@ def get_service_account_credentials():
     Carrega as credenciais da conta de serviço a partir de st.secrets.
     """
     try:
-        # Tenta carregar as credenciais da seção 'gcp_service_account'
+        # A autenticação deve passar agora que os Secrets foram corrigidos
         creds_dict = st.secrets["gcp_service_account"]
         
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         
-        # Cria as credenciais a partir do dicionário (st.secrets)
+        # O Streamlit usa as credenciais do JSON para criar o objeto de serviço
         creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
         return creds
     except KeyError:
-        # Exceção mais clara para o usuário
-        st.error("Erro Crítico de Credenciais: A seção 'gcp_service_account' não foi encontrada nos Streamlit Secrets. Verifique o secrets.toml/painel do Cloud.")
+        st.error("Erro de Credenciais: A seção 'gcp_service_account' não foi encontrada nos Streamlit Secrets. Verifique o secrets.toml/painel do Cloud.")
         return None
     except Exception as e:
-        st.error(f"Erro Crítico: Não foi possível autenticar a Conta de Serviço. Detalhes: {e}")
+        # Este erro só deve ocorrer se a formatação da private_key estiver incorreta
+        st.error(f"Erro Crítico de Autenticação: Não foi possível autenticar a Conta de Serviço. Detalhes: {e}")
         return None
 
-@st.cache_data(ttl=600) 
+@st.cache_data(ttl=600) # Cache para não sobrecarregar a API do Sheets
 def load_data_from_gsheets():
     """
-    Conecta ao Google Sheets e lê as abas 'Transacoes' e 'Categorias'.
+    Conecta ao Google Sheets e lê as abas 'TRANSACOES' e 'CATEGORIAS'.
     """
     creds = get_service_account_credentials()
     if not creds: return pd.DataFrame(), pd.DataFrame()
@@ -44,8 +43,9 @@ def load_data_from_gsheets():
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(SHEET_ID)
         
-        df_transacoes = pd.DataFrame(sh.worksheet("Transacoes").get_all_records())
-        df_categorias = pd.DataFrame(sh.worksheet("Categorias").get_all_records())
+        # --- CORREÇÃO FINAL: NOMES DAS ABAS EM MAIÚSCULAS CONFORME O SHEET ---
+        df_transacoes = pd.DataFrame(sh.worksheet("TRANSACOES").get_all_records())
+        df_categorias = pd.DataFrame(sh.worksheet("CATEGORIAS").get_all_records())
         
         # Limpeza e Tipagem de Dados (Governança!)
         if not df_transacoes.empty:
@@ -54,22 +54,24 @@ def load_data_from_gsheets():
         
         return df_transacoes, df_categorias
         
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"Erro: Planilha '{PLANILHA_NOME}' não encontrada ou permissões insuficientes. Compartilhe com o email da Conta de Serviço: analise-de-vendas-820@bolos-b9ca2.iam.gserviceaccount.com")
+    except gspread.exceptions.WorksheetNotFound:
+        st.error("Erro: Uma das abas (TRANSACOES ou CATEGORIAS) não foi encontrada na planilha. Verifique o nome exato.")
         return pd.DataFrame(), pd.DataFrame()
     except Exception as e:
         st.error(f"Ocorreu um erro na conexão com o Google Sheets: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
 def save_transaction_to_gsheets(data_dict):
-    """Insere um novo registro na aba 'Transacoes'."""
+    """Insere um novo registro na aba 'TRANSACOES'."""
     creds = get_service_account_credentials()
     if not creds: return False
 
     try:
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(SHEET_ID)
-        transacoes_sheet = sh.worksheet("Transacoes")
+        
+        # --- CORREÇÃO FINAL: NOME DA ABA EM MAIÚSCULAS ---
+        transacoes_sheet = sh.worksheet("TRANSACOES") 
         
         # Gera o ID Único (Governança!)
         new_id = f"TRX-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:4]}"
@@ -89,6 +91,7 @@ def save_transaction_to_gsheets(data_dict):
         
         transacoes_sheet.append_row(row_to_append, value_input_option='USER_ENTERED')
         
+        # Limpa o cache para que o dashboard seja atualizado na próxima leitura
         load_data_from_gsheets.clear() 
         return True
     except Exception as e:
