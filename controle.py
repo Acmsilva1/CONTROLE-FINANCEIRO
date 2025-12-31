@@ -1,4 +1,4 @@
-# controle.py (FINAL, MODO ESCURO FORÇADO POR CSS)
+# controle.py (FINAL, DARK MODE AJUSTADO PARA CONTRASTE)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -127,27 +127,48 @@ def deletar_transacao(spreadsheet, id_transacao):
 
 st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
-# --- BLOCO DE CSS PARA FORÇAR MODO ESCURO ---
+# --- BLOCO DE CSS REFINADO PARA FORÇAR MODO ESCURO E BOM CONTRASTE ---
 st.markdown("""
 <style>
-/* Força o fundo principal do aplicativo (Darkest Grey) */
+/* Streamlit Dark Theme Colors */
+:root {
+    --primary-color: #FA3710; /* Cor de destaque (Vermelho no seu caso, mantive) */
+    --background-color: #0E1117; /* Fundo principal (Cinza bem escuro) */
+    --secondary-background-color: #262730; /* Fundo secundário (Barra lateral, inputs) */
+    --text-color: #FAFAFA; /* Cor do texto principal */
+    --font: sans-serif;
+}
+
+/* 1. Força o Fundo principal e o texto */
 .stApp {
-    background-color: #0E1117; 
+    background-color: var(--background-color);
+    color: var(--text-color);
 }
 
-/* Força o fundo da barra lateral (Slightly Lighter Dark Grey) */
-.css-1d3f8gv {
-    background-color: #1E1E1E !important; 
+/* 2. Força a barra lateral */
+.st-emotion-cache-1d3f8gv { /* Classe para a barra lateral */
+    background-color: var(--secondary-background-color) !important;
 }
 
-/* Força o texto para Branco/Light Grey no conteúdo principal */
-.main-content, .css-1lcbmhc, .css-1v3fvcr, .stMarkdown, .stSubheader, .stHeader, .stTitle, .stSelectbox, .stNumberInput, .stTextInput, .stTextArea {
-    color: #FAFAFA;
+/* 3. Garante que os containers (expanders, forms) usem o fundo secundário */
+.st-emotion-cache-vk3ypw, .st-emotion-cache-1ft0iwe, .st-emotion-cache-u13xnx { /* containers/forms/expanders */
+    background-color: var(--secondary-background-color);
+    border: 1px solid rgba(250, 250, 250, 0.1);
+    border-radius: 0.5rem;
 }
 
+/* 4. Garante que o texto dentro dos containers e widgets esteja visível (Branco) */
+.stMarkdown, .stSubheader, .stHeader, .stTitle, label, div.stNumberInput > label, div.stTextInput > label, div.stSelectbox > label {
+    color: var(--text-color);
+}
+
+/* 5. Corrige a cor de fundo das tabelas de dados */
+.stDataFrame {
+    color: var(--text-color);
+}
 </style>
 """, unsafe_allow_html=True)
-# --------------------------------------------
+# --------------------------------------------------------------------
 
 
 st.title("💸 Controle Financeiro Básico (CRUD)")
@@ -321,6 +342,8 @@ else:
                     with col_u:
                         st.markdown("##### Atualizar Transação Selecionada")
                         
+                        # --- Missing Submit Button Fix ---
+                        # Garantindo que o form de update tem um submit button
                         with st.form("form_update_transacao_c"):
                             
                             categoria_existente = transacao_dados['Categoria']
