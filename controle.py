@@ -21,7 +21,7 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÃO DE PARSING (A Chave da Solução) ===
+# === FUNÇÃO DE PARSING (Versão Otimizada) ===
 # =================================================================
 
 def parse_valor_monetario(valor_input):
@@ -32,10 +32,15 @@ def parse_valor_monetario(valor_input):
     if not valor_input or valor_input.strip() == "":
         raise ValueError("Campo de valor vazio.")
         
-    # 1. Remove pontos (separadores de milhar)
-    clean_input = valor_input.strip().replace('.', '')
+    # Limpa caracteres não numéricos (R$, espaços, etc.) exceto . e ,
+    clean_input = "".join(filter(lambda x: x.isdigit() or x in (',', '.'), valor_input))
     
-    # 2. Substitui a vírgula (separador decimal brasileiro) pelo ponto decimal do Python
+    # 1. Remove PONTOS (separadores de milhar)
+    # Ex: '1.156,00' -> '1156,00'
+    clean_input = clean_input.replace('.', '')
+    
+    # 2. Substitui a VÍRGULA (decimal brasileiro) pelo ponto decimal do Python
+    # Ex: '1156,00' -> '1156.00'
     clean_input = clean_input.replace(',', '.')
     
     # 3. Converte para float
