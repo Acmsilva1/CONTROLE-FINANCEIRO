@@ -1,4 +1,4 @@
-# controle.py (FINAL E COM LOCALIZAÇÃO BR CORRETA NO PANDAS)
+# controle.py (FINAL, ROBUSTO E COM LIMPEZA MANUAL DE LOCALIZAÇÃO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -53,7 +53,6 @@ def format_currency(value):
 def format_value_for_sheets(value):
     """
     Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
-    Isso é feito para que o Google Sheets com formatação BR aceite o valor corretamente.
     """
     if value is None or value == 0.0:
         return "0,00"
@@ -63,6 +62,24 @@ def format_value_for_sheets(value):
     # Troca o ponto decimal por vírgula decimal (formato BR)
     return valor_str.replace('.', ',')
 
+def limpar_e_converter_valor(valor_str):
+    """
+    Converte a string BR ('11,56' ou '1.156,00') lida do Sheets para float (11.56) 
+    através da limpeza manual (robusto para versões antigas do Pandas).
+    """
+    if pd.isna(valor_str) or valor_str is None or str(valor_str).strip() == "":
+        return 0.0
+        
+    # Remove separadores de milhar (ponto, se houver)
+    valor_limpo = str(valor_str).replace('.', '')
+    # Troca a vírgula decimal (BR) por ponto decimal (Python/Pandas)
+    valor_limpo = valor_limpo.replace(',', '.')
+    
+    try:
+        return float(valor_limpo)
+    except ValueError:
+        return 0.0 
+
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
 # =================================================================
@@ -70,7 +87,6 @@ def format_value_for_sheets(value):
 def get_service_account_credentials():
     """Carrega as credenciais da conta de serviço."""
     try:
-        # Usa st.secrets para carregar as credenciais
         creds_dict = st.secrets["gcp_service_account"] 
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
@@ -102,25 +118,18 @@ def conectar_sheets_resource():
 
 @st.cache_data(ttl=10) 
 def carregar_dados(): 
-    """Lê a aba TRANSACOES e retorna como DataFrame, corrigindo o separador decimal BR."""
+    """Lê a aba TRANSACOES e retorna como DataFrame, usando limpeza manual (limpar_e_converter_valor)."""
     spreadsheet = conectar_sheets_resource() 
     if spreadsheet is None:
         return pd.DataFrame()
         
     try:
-        # Método robusto para ler a planilha
         df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
 
         if not df_transacoes.empty:
             
-            # --- CORREÇÃO CRÍTICA DE LOCALIZAÇÃO (PANDAS) ---
-            # Dizemos ao Pandas que a vírgula (,) é o separador DECIMAL.
-            # Se o dado vier como a string '11,56', ele vira o float 11.56.
-            df_transacoes['Valor'] = pd.to_numeric(
-                df_transacoes['Valor'], 
-                errors='coerce', 
-                decimal=','
-            )
+            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL ---
+            df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor)
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
@@ -482,7 +491,7 @@ else:
                             deletar_transacao(spreadsheet, transacao_selecionada_id)
                             t.sleep(1)
     else:
-        # Só exibe se a falha não for por falta de dados após a filtragem
+        # Mensagens de fallback (garantindo que não haja erro de índice)
         if selected_month and not df_filtrado.empty:
              st.error("Erro na coluna 'Valor' do DataFrame filtrado. Verifique a planilha.")
         elif selected_month:
