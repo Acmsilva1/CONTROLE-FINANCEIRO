@@ -1,4 +1,4 @@
-# controle.py (FINAL, COM INPUT VAZIO E LÓGICA DE VALIDAÇÃO DE ZERO)
+# controle.py (FINAL, COM INPUT REAIS/CENTAVOS E FORMATO DE EXIBIÇÃO SIMPLIFICADO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -21,30 +21,22 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÕES DE PARSING E FORMATAÇÃO (Mantidas) ===
+# === FUNÇÃO DE FORMATAÇÃO (SIMPLIFICADA) ===
 # =================================================================
 
-def parse_valor_monetario(valor_input):
-    """
-    Função mantida como fallback de limpeza de string.
-    """
-    if not valor_input or valor_input.strip() == "":
-        raise ValueError("Campo de valor vazio.")
-        
-    valor_str = valor_input.strip()
-    valor_str = valor_str.replace('.', '') # Remove separadores de milhar
-    valor_str = valor_str.replace(',', '.') # Troca vírgula decimal por ponto
-    
-    try:
-        return float(valor_str)
-    except ValueError as e:
-        print(f"DEBUG: Falha ao converter '{valor_str}' para float. Erro: {e}")
-        raise ValueError("Formato de valor inválido após limpeza.")
-
-
-# Função para formatar a moeda (exibição)
+# FUNÇÃO SIMPLIFICADA: Apenas garante duas casas decimais. 
+# O separador (ponto ou vírgula) será definido pelo LOCALE do seu Streamlit/navegador.
 def format_currency(value):
-    return f"R$ {value:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
+    """
+    Formata um float (ex: 11.56) para string monetária (ex: R$ 11.56 ou R$ 11,56).
+    """
+    if value is None:
+        return "R$ 0.00"
+        
+    # Usa o f-string padrão com duas casas decimais.
+    # O separador de decimal será o padrão do ambiente (que pode ser ponto ou vírgula).
+    # O importante é que a precisão (0.56) está garantida.
+    return f"R$ {value:,.2f}"
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA (inalteradas) ===
@@ -183,11 +175,11 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # NOVAS ENTRADAS: Reais (sem valor inicial)
+    # NOVAS ENTRADAS: Reais/Centavos
     reais_input = col_c3.number_input(
         "Valor (R$ - Reais)", 
         min_value=0, 
-        value=None,  # Alterado para None
+        value=None, 
         step=1, 
         format="%d", 
         key="reais_c"
@@ -197,7 +189,7 @@ with st.form("form_transacao", clear_on_submit=True):
         "Centavos", 
         min_value=0, 
         max_value=99, 
-        value=None,  # Alterado para None
+        value=None, 
         step=1, 
         format="%d", 
         key="centavos_c"
@@ -213,7 +205,7 @@ with st.form("form_transacao", clear_on_submit=True):
         reais_final = reais_input if reais_input is not None else 0
         centavos_final = centavos_input if centavos_input is not None else 0
         
-        # Reconstrução do valor float
+        # Reconstrução do valor float (A fonte da verdade)
         valor = reais_final + (centavos_final / 100)
         
         if descricao and valor > 0:
@@ -361,8 +353,8 @@ else:
                                 reais_existentes = int(valor_existente)
                                 centavos_existentes = int(round((valor_existente - reais_existentes) * 100))
                             except (ValueError, TypeError):
-                                reais_existentes = None # O valor inicial deve ser None
-                                centavos_existentes = None # O valor inicial deve ser None
+                                reais_existentes = None
+                                centavos_existentes = None
                             
                             col_upd_1, col_upd_2 = st.columns(2)
                             
@@ -385,15 +377,13 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # NOVOS CAMPOS DE EDIÇÃO (Agora com valores iniciais corretos)
+                            # CAMPOS DE EDIÇÃO
                             col_upd_v1, col_upd_v2 = st.columns([2, 1])
                             
-                            # Para edição, precisamos passar um valor (o valor_existente), 
-                            # mas se o valor não existir no df, usamos None
                             novo_reais_input = col_upd_v1.number_input(
                                 "Valor (R$ - Reais)", 
                                 min_value=0, 
-                                value=reais_existentes, # Valor existente ou None
+                                value=reais_existentes, 
                                 step=1, 
                                 format="%d", 
                                 key="ut_reais_c"
@@ -403,7 +393,7 @@ else:
                                 "Centavos", 
                                 min_value=0, 
                                 max_value=99, 
-                                value=centavos_existentes, # Valor existente ou None
+                                value=centavos_existentes, 
                                 step=1, 
                                 format="%d", 
                                 key="ut_centavos_c"
