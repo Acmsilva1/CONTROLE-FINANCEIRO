@@ -1,4 +1,4 @@
-# controle.py (FINAL, COM FORMATAÇÃO BR NA ESCRITA PARA O SHEETS)
+# controle.py (FINALÍSSIMA, COM LIMPEZA BR NA LEITURA E ESCRITA)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -32,15 +32,12 @@ def format_currency(value):
     if value is None or value == 0.0:
         return "R$ 0,00"
         
-    # 1. Converte o float para string garantindo duas casas decimais (Ex: '11.56')
     valor_str = "{:.2f}".format(value)
     
-    # 2. Separa a parte inteira e a parte decimal
     partes = valor_str.split('.')
     reais = partes[0]
     centavos = partes[1]
     
-    # 3. Formata a parte inteira (reais) com separador de milhar BR (ponto)
     reais_formatados = []
     for i in range(len(reais), 0, -3):
         start = max(0, i - 3)
@@ -48,32 +45,41 @@ def format_currency(value):
         
     reais_com_ponto = ".".join(reais_formatados)
     
-    # 4. Junta tudo com a vírgula decimal
     valor_final = f"{reais_com_ponto},{centavos}"
     
-    # 5. Adiciona o símbolo R$
     return f"R$ {valor_final}"
 
 def format_value_for_sheets(value):
     """
     Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
-    Se a coluna estiver como 'Moeda', o Sheets deve interpretar corretamente.
     """
     if value is None or value == 0.0:
         return "0,00"
         
-    # 1. Formata o valor como string, garantindo duas casas decimais
     valor_str = "{:.2f}".format(value)
     
-    # 2. Troca o ponto decimal por vírgula decimal (formato BR)
     return valor_str.replace('.', ',')
 
+def limpar_e_converter_valor(valor_str):
+    """
+    Função CRÍTICA para converter a string BR ('11,56') lida do Sheets para float (11.56).
+    """
+    if pd.isna(valor_str) or valor_str is None or str(valor_str).strip() == "":
+        return 0.0
+        
+    # Remove separadores de milhar (ponto, se houver)
+    valor_limpo = str(valor_str).replace('.', '')
+    # Troca a vírgula decimal (BR) por ponto decimal (Python/Pandas)
+    valor_limpo = valor_limpo.replace(',', '.')
+    
+    try:
+        return float(valor_limpo)
+    except ValueError:
+        return 0.0 # Retorna 0.0 se a conversão ainda falhar
 
 # =================================================================
-# === FUNÇÕES DE CONEXÃO E GOVERNANÇA (APENAS ESCREVER ALTERADA) ===
+# === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
 # =================================================================
-# ... (Funções get_service_account_credentials e conectar_sheets_resource inalteradas)
-# ... (Função carregar_dados inalterada)
 
 def get_service_account_credentials():
     """Carrega as credenciais da conta de serviço."""
@@ -118,7 +124,10 @@ def carregar_dados():
         df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
 
         if not df_transacoes.empty:
-            df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
+            # --- MUDANÇA CRÍTICA AQUI ---
+            # Aplicamos a limpeza e conversão de '11,56' -> 11.56
+            df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor)
+            
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
 
@@ -134,7 +143,6 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # --- AQUI ESTÁ A MUDANÇA CRÍTICA ---
         # Formata o valor float para string BR antes de enviar.
         dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
         
@@ -154,7 +162,6 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
         
-        # --- AQUI ESTÁ A MUDANÇA CRÍTICA ---
         # Formata o valor float para string BR antes de enviar.
         novos_dados['Valor'] = format_value_for_sheets(novos_dados['Valor'])
         
@@ -183,7 +190,7 @@ def deletar_transacao(spreadsheet, id_transacao):
         return False
 
 # =================================================================
-# === INTERFACE STREAMLIT (UI - inalterada) ===
+# === INTERFACE STREAMLIT (UI) ===
 # =================================================================
 
 st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
@@ -257,9 +264,9 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Mês": mes_referencia_c,
                 "Descricao": descricao, 
                 "Categoria": categoria, 
-                "Valor": valor # Enviamos o float 11.56
+                "Valor": valor 
             }
-            adicionar_transacao(spreadsheet, data_to_save) # A função adiciona vai formatar para '11,56'
+            adicionar_transacao(spreadsheet, data_to_save) 
             t.sleep(1) 
         else:
             st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios. Não complique.")
@@ -459,11 +466,11 @@ else:
                                     dados_atualizados = {
                                         'ID Transacao': transacao_selecionada_id, 
                                         'Descricao': novo_descricao,
-                                        'Valor': novo_valor, # Enviamos o float 11.56
+                                        'Valor': novo_valor, 
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
                                     }
-                                    atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) # A função atualizar vai formatar para '11,56'
+                                    atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
                                     t.sleep(1)
                                 else:
                                     st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
