@@ -1,4 +1,4 @@
-# controle.py (FINAL, FILTRAGEM POR MÊS E TABELAS SEPARADAS)
+# controle.py (FINAL, MODO ESCURO FORÇADO POR CSS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -21,7 +21,7 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
+# === FUNÇÕES DE CONEXÃO E GOVERNANÇA (inalteradas) ===
 # =================================================================
 
 def get_service_account_credentials():
@@ -68,9 +68,7 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
-            
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
-            
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
 
         return df_transacoes
@@ -128,6 +126,30 @@ def deletar_transacao(spreadsheet, id_transacao):
 # =================================================================
 
 st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
+
+# --- BLOCO DE CSS PARA FORÇAR MODO ESCURO ---
+st.markdown("""
+<style>
+/* Força o fundo principal do aplicativo (Darkest Grey) */
+.stApp {
+    background-color: #0E1117; 
+}
+
+/* Força o fundo da barra lateral (Slightly Lighter Dark Grey) */
+.css-1d3f8gv {
+    background-color: #1E1E1E !important; 
+}
+
+/* Força o texto para Branco/Light Grey no conteúdo principal */
+.main-content, .css-1lcbmhc, .css-1v3fvcr, .stMarkdown, .stSubheader, .stHeader, .stTitle, .stSelectbox, .stNumberInput, .stTextInput, .stTextArea {
+    color: #FAFAFA;
+}
+
+</style>
+""", unsafe_allow_html=True)
+# --------------------------------------------
+
+
 st.title("💸 Controle Financeiro Básico (CRUD)")
 
 # Conexão
@@ -221,24 +243,20 @@ else:
 
         st.markdown("---")
         
-        # === VISUALIZAÇÃO DA TABELA (READ) - MODIFICADA PARA 2 TABELAS ===
+        # === VISUALIZAÇÃO DA TABELA (READ) - DUAS TABELAS SEPARADAS ===
 
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
-        # 1. Preparar data para exibição (formatar valor)
         df_base_display = df_filtrado.copy()
         df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(
             lambda v: f"R$ {v:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
         )
         
-        # 2. Filtrar em Receita e Despesa
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
         df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
         
-        # Colunas a serem exibidas nas tabelas separadas
         DISPLAY_COLUMNS = ['Descricao', 'Valor_Formatado']
 
-        # 3. Exibir lado a lado
         col_rec, col_des = st.columns(2)
 
         with col_rec:
@@ -265,18 +283,16 @@ else:
         
         st.markdown("---") 
 
-        # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) ===
+        # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) (Inalterada) ===
 
         st.header("🛠️ Edição e Exclusão (Update/Delete)")
         
         with st.expander("📝 Gerenciar Transação", expanded=True):
             
-            # Continua usando todas as transações do mês para seleção (independentemente da tabela)
             transacoes_atuais = df_filtrado['ID Transacao'].tolist()
             
             def formatar_selecao_transacao(id_val):
                 try:
-                    # Usa o DataFrame completo aqui para garantir que encontra o registro mesmo se o filtro mudar
                     df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
                     valor_formatado = f"{df_linha['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
                     return f"{df_linha['Descricao']} ({df_linha['Mês']} | R$ {valor_formatado})"
