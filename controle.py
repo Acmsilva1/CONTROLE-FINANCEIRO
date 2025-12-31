@@ -1,4 +1,4 @@
-# controle.py (FINAL, MODO CLARO PADRÃO, COM CORREÇÃO DE PARSING)
+# controle.py (FINAL, COM CORREÇÃO DE PARSING QUE IGNORA LOCALE)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -27,21 +27,31 @@ MESES_PT = {
 def parse_valor_monetario(valor_input):
     """
     Converte strings monetárias BR (ex: '1.235,50') em float (Python/Sheets).
-    Remove pontos de milhar e troca vírgula decimal por ponto.
+    Esta versão é resiliente a problemas de locale/conversão automática.
     """
     if not valor_input or valor_input.strip() == "":
         raise ValueError("Campo de valor vazio.")
         
-    clean_input = valor_input.strip()
+    valor_str = valor_input.strip()
     
-    # 1. Remove PONTOS (separadores de milhar)
-    clean_input = clean_input.replace('.', '')
+    # 1. Troca PONTOS por NADA (Remove separadores de milhar)
+    # Ex: '1.156,00' -> '1156,00'
+    valor_str = valor_str.replace('.', '')
     
-    # 2. Substitui a VÍRGULA (decimal brasileiro) pelo ponto decimal do Python
-    clean_input = clean_input.replace(',', '.')
+    # 2. Troca VÍRGULAS por PONTO (Decimal)
+    # Ex: '1156,00' -> '1156.00'
+    valor_str = valor_str.replace(',', '.')
     
-    # 3. Converte para float
-    return float(clean_input)
+    # 3. Garante que só há um ponto decimal (caso a entrada fosse '1,1,56')
+    # O passo anterior garante que só há pontos, então podemos confiar.
+    
+    # 4. Converte para float
+    try:
+        return float(valor_str)
+    except ValueError as e:
+        # Adiciona um print para debug, caso o erro persista
+        print(f"DEBUG: Falha ao converter '{valor_str}' para float. Erro: {e}")
+        raise ValueError("Formato de valor inválido após limpeza. Use números e vírgulas/pontos.")
 
 
 # Função para formatar a moeda (exibição) - Usada nos Cards (Metrics) e tabelas
@@ -186,7 +196,7 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # Voltamos a usar st.text_input para forçar a entrada de string
+    # st.text_input é OBRIGATÓRIO para aceitar a vírgula
     valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 235,50 ou 1.235,50") 
     
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
@@ -198,8 +208,8 @@ with st.form("form_transacao", clear_on_submit=True):
         try:
             valor = parse_valor_monetario(valor_input)
 
-        except ValueError:
-            st.warning("O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Transação não lançada.")
+        except ValueError as ve:
+            st.warning(f"O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Transação não lançada. ({ve})")
             st.stop() 
         
         if descricao and valor > 0:
@@ -251,7 +261,6 @@ else:
 
         col1, col2, col3 = st.columns(3)
         
-        # CORREÇÃO: Usando a função format_currency para todos os Metrics
         col1.metric("Total de Receitas", format_currency(total_receita))
         col2.metric("Total de Despesas", format_currency(total_despesa))
         col3.metric("Valor Líquido Restante", 
@@ -266,7 +275,6 @@ else:
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
         df_base_display = df_filtrado.copy()
-        # CORREÇÃO: Usando a função format_currency na tabela
         df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(format_currency)
         
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
@@ -311,7 +319,7 @@ else:
             def formatar_selecao_transacao(id_val):
                 try:
                     df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
-                    valor_formatado = format_currency(df_linha['Valor']) # Usando format_currency
+                    valor_formatado = format_currency(df_linha['Valor'])
                     return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado})"
                 except:
                     return f"ID Inconsistente ({id_val[:4]}...)"
@@ -369,7 +377,7 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # Voltamos a usar st.text_input para edição
+                            # st.text_input para edição
                             valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
                             novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
                             
@@ -382,8 +390,8 @@ else:
                                 try:
                                     novo_valor = parse_valor_monetario(novo_valor_input)
                                     
-                                except ValueError:
-                                    st.warning("O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Atualização não realizada.")
+                                except ValueError as ve:
+                                    st.warning(f"O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Atualização não realizada. ({ve})")
                                     st.stop()
                                 
                                 if novo_descricao and novo_valor > 0:
