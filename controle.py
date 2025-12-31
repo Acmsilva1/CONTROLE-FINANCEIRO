@@ -1,4 +1,4 @@
-# controle.py (FINAL, UNIFICADO E CORRIGIDO)
+# controle.py (FINAL, UNIFICADO E 100% CORRIGIDO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
@@ -14,7 +14,7 @@ ABA_TRANSACOES = "TRANSACOES"
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Data', 'Descricao', 'Categoria', 'Valor']
 
 # =================================================================
-# === FUNÇÕES DE CONEXÃO E GOVERNANÇA (Integradas aqui) ===
+# === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
 # =================================================================
 
 def get_service_account_credentials():
@@ -60,6 +60,7 @@ def carregar_dados():
         df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
 
         if not df_transacoes.empty:
+            # LER: dayfirst=True para formato brasileiro DD/MM/YYYY
             df_transacoes['Data'] = pd.to_datetime(df_transacoes['Data'], dayfirst=True, errors='coerce')
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             df_transacoes = df_transacoes.dropna(subset=['Data', 'Valor']).copy() 
@@ -78,7 +79,7 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         sheet.append_row(nova_linha)
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
-        carregar_dados.clear() # Limpa o cache para forçar a releitura
+        carregar_dados.clear() 
         return True
     except Exception as e:
         st.error(f"Erro ao adicionar transação: {e}")
@@ -219,7 +220,6 @@ else:
         transacoes_atuais = df_transacoes['ID Transacao'].tolist()
         
         def formatar_selecao_transacao(id_val):
-            # Adiciona try/except caso a linha seja inconsistente
             try:
                 df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0]
                 valor_formatado = f"{df_linha['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
@@ -227,19 +227,15 @@ else:
             except:
                 return f"ID Inconsistente ({id_val[:4]}...)"
 
-
-        # O selectbox define a variável
         transacao_selecionada_id = st.selectbox(
             "Selecione a Transação para Ação (Edição/Exclusão):",
             options=transacoes_atuais,
-            index=0 if transacoes_atuais else None, # Garante um index inicial
+            index=0 if transacoes_atuais else None,
             format_func=formatar_selecao_transacao,
             key='sel_upd_del_c'
         )
     
-        # A lógica de UPDATE/DELETE SÓ RODA SE A VARIÁVEL ESTIVER DEFINIDA
         if transacao_selecionada_id:
-            # Garante que os dados existem para esta ID
             try:
                 transacao_dados = df_transacoes[df_transacoes['ID Transacao'] == transacao_selecionada_id].iloc[0]
             except IndexError:
@@ -253,20 +249,24 @@ else:
                 with col_u:
                     st.markdown("##### Atualizar Transação Selecionada")
                     
-                    # O formulário com o botão de submit no final
                     with st.form("form_update_transacao_c"):
                         
                         data_existente = pd.to_datetime(transacao_dados['Data']).date()
-                        valor_existente = transacao_dados['Valor']
                         categoria_existente = transacao_dados['Categoria']
+                        
+                        # --- FIX CRÍTICO: Conversão segura para float ---
+                        try:
+                            valor_existente = float(transacao_dados['Valor']) 
+                        except (ValueError, TypeError):
+                            valor_existente = 0.0 
+                        # ----------------------------------------------------
                         
                         col_upd_1, col_upd_2 = st.columns(2)
                         
-                        # Fix de inicialização: Usa try/except para garantir um fallback index
                         try:
                             cat_index = ["Receita", "Despesa"].index(categoria_existente)
                         except ValueError:
-                            cat_index = 0 # Default para Receita
+                            cat_index = 0
                             
                         novo_categoria = col_upd_1.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                         novo_valor = col_upd_2.number_input("Valor (R$)", value=valor_existente, min_value=0.01, format="%.2f", key='ut_valor_c')
@@ -288,7 +288,7 @@ else:
                                     'Data': novo_data.strftime('%d/%m/%Y'), 
                                 }
                                 atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
-                                t.sleep(1) # Rerenderiza após o update
+                                t.sleep(1)
                             else:
                                 st.warning("Descrição e Valor são obrigatórios na atualização.")
 
@@ -298,7 +298,7 @@ else:
                     
                     if st.button("🔴 EXCLUIR TRANSAÇÃO (Delete)", type="primary", key='del_button_c'):
                         deletar_transacao(spreadsheet, transacao_selecionada_id)
-                        t.sleep(1) # Rerenderiza após o delete
+                        t.sleep(1)
 
 with st.sidebar:
     st.markdown("---")
