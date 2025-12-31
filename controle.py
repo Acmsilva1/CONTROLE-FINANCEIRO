@@ -1,4 +1,4 @@
-# controle.py (FINAL, VALOR MONETÁRIO COM TEXT INPUT E CAMPO VAZIO NA CRIAÇÃO)
+# controle.py (FINAL, VALOR MONETÁRIO COM TEXT INPUT VAZIO E PARSING CORRIGIDO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -157,8 +157,8 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # MODIFICAÇÃO: Usando st.text_input vazio com placeholder
-    valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 1500,50 ou 1500.50") 
+    # CAMPO EM BRANCO: valor=""
+    valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 1500,50") 
     
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
     
@@ -167,10 +167,15 @@ with st.form("form_transacao", clear_on_submit=True):
     if submitted:
         # Tenta converter o valor do texto para float
         try:
-            # Troca vírgula por ponto para a conversão de float funcionar
-            valor = float(valor_input.replace(',', '.'))
+            # LÓGICA DE PARSING CORRIGIDA: Remove pontos (milhares) e troca vírgula por ponto decimal
+            clean_input = valor_input.replace('.', '').replace(',', '.')
+            if not clean_input:
+                raise ValueError("Campo vazio")
+
+            valor = float(clean_input)
+
         except ValueError:
-            st.warning("O campo Valor deve ser um número válido. Use ponto ou vírgula como separador decimal. Transação não lançada.")
+            st.warning("O campo Valor deve ser um número válido (ex: 250,65 ou 250.65). Transação não lançada.")
             st.stop() # Para a execução em caso de erro de formatação
         
         if descricao and valor > 0:
@@ -340,7 +345,7 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # Mantendo o valor preenchido na edição
+                            # Mantendo o valor preenchido na edição com formato PT-BR
                             valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
                             novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
                             
@@ -351,9 +356,15 @@ else:
                             if update_button:
                                 # Tenta converter o valor do texto para float
                                 try:
-                                    novo_valor = float(novo_valor_input.replace(',', '.'))
+                                    # LÓGICA DE PARSING CORRIGIDA: Remove pontos (milhares) e troca vírgula por ponto decimal
+                                    clean_input = novo_valor_input.replace('.', '').replace(',', '.')
+                                    if not clean_input:
+                                        raise ValueError("Campo vazio")
+
+                                    novo_valor = float(clean_input)
+                                    
                                 except ValueError:
-                                    st.warning("O campo Valor deve ser um número válido. Use ponto ou vírgula como separador decimal. Atualização não realizada.")
+                                    st.warning("O campo Valor deve ser um número válido (ex: 250,65 ou 250.65). Atualização não realizada.")
                                     st.stop() # Para a execução em caso de erro de formatação
                                 
                                 if novo_descricao and novo_valor > 0:
