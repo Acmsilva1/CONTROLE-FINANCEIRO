@@ -1,4 +1,4 @@
-# controle.py (FINAL, MODO CLARO PADRÃO, SEM CSS INJETADO)
+# controle.py (FINAL, VALOR MONETÁRIO COM TEXT INPUT)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -127,8 +127,6 @@ def deletar_transacao(spreadsheet, id_transacao):
 
 st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
-# O bloco de CSS foi removido daqui para retornar ao tema padrão
-
 st.title("💸 **Controle Financeiro**")
 
 # Conexão
@@ -158,13 +156,24 @@ with st.form("form_transacao", clear_on_submit=True):
         key="mes_ref_c"
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
-    valor = col_c3.number_input("Valor (R$)", min_value=0.01, format="%.2f", key="val_c")
+    
+    # MODIFICAÇÃO: Usando st.text_input para valor monetário (sem setas/steppers)
+    valor_input = col_c3.text_input("Valor (R$)", value="0,00", key="val_c") 
+    
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
     
     submitted = st.form_submit_button("Lançar Transação!")
     
     if submitted:
-        if descricao and valor:
+        # Tenta converter o valor do texto para float
+        try:
+            # Troca vírgula por ponto para a conversão de float funcionar
+            valor = float(valor_input.replace(',', '.'))
+        except ValueError:
+            st.warning("O campo Valor deve ser um número válido. Use ponto ou vírgula como separador decimal. Transação não lançada.")
+            st.stop() # Para a execução em caso de erro de formatação
+        
+        if descricao and valor > 0:
             data_to_save = {
                 "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
                 "Mês": mes_referencia_c,
@@ -175,7 +184,7 @@ with st.form("form_transacao", clear_on_submit=True):
             adicionar_transacao(spreadsheet, data_to_save)
             t.sleep(1) 
         else:
-            st.warning("Descrição e Valor são obrigatórios. Não complique.")
+            st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios. Não complique.")
 
 
 st.markdown("---") 
@@ -331,25 +340,34 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            novo_valor = st.number_input("Valor (R$)", value=valor_existente, min_value=0.01, format="%.2f", key='ut_valor_c')
+                            # MODIFICAÇÃO: Usando st.text_input para valor monetário (sem setas/steppers)
+                            valor_existente_str = f"{valor_existente:.2f}".replace('.', ',')
+                            novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str, key='ut_valor_c')
                             
                             novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
                             
                             update_button = st.form_submit_button("Salvar Atualizações (Update)")
 
                             if update_button:
-                                if novo_descricao and novo_valor:
+                                # Tenta converter o valor do texto para float
+                                try:
+                                    novo_valor = float(novo_valor_input.replace(',', '.'))
+                                except ValueError:
+                                    st.warning("O campo Valor deve ser um número válido. Use ponto ou vírgula como separador decimal. Atualização não realizada.")
+                                    st.stop() # Para a execução em caso de erro de formatação
+                                
+                                if novo_descricao and novo_valor > 0:
                                     dados_atualizados = {
                                         'ID Transacao': transacao_selecionada_id, 
                                         'Descricao': novo_descricao,
-                                        'Valor': novo_valor,
+                                        'Valor': novo_valor, # Usando o valor parseado
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
                                     t.sleep(1)
                                 else:
-                                    st.warning("Descrição e Valor são obrigatórios na atualização.")
+                                    st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios na atualização.")
 
                     with col_d:
                         st.markdown("##### Excluir")
