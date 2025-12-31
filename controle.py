@@ -1,4 +1,4 @@
-# controle.py (FINAL, MODO CLARO PADRÃO, SEM CSS INJETADO)
+# controle.py (FINAL, VALOR MONETÁRIO COM TEXT INPUT VAZIO E PARSING REFORÇADO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -19,6 +19,28 @@ MESES_PT = {
     5: 'Mai', 6: 'Jun', 7: 'Jul', 8: 'Ago', 
     9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
 }
+
+# =================================================================
+# === FUNÇÃO DE PARSING REFORÇADA (Onde a Mágica Acontece) ===
+# =================================================================
+
+def parse_valor_monetario(valor_input):
+    """
+    Função de governança para converter strings monetárias (BR) em float (Python).
+    Lógica: remove separadores de milhar (pontos) e usa vírgula como decimal.
+    Ex: '1.235,50' -> 1235.50
+    """
+    if not valor_input:
+        raise ValueError("Campo de valor vazio.")
+        
+    # 1. Limpa espaços em branco e substitui separadores de milhar (ponto)
+    clean_input = valor_input.strip().replace('.', '')
+    
+    # 2. Substitui o separador decimal brasileiro (vírgula) pelo ponto decimal padrão
+    clean_input = clean_input.replace(',', '.')
+    
+    # 3. Tenta converter para float
+    return float(clean_input)
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA (inalteradas) ===
@@ -127,9 +149,7 @@ def deletar_transacao(spreadsheet, id_transacao):
 
 st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
-# O bloco de CSS foi removido daqui para retornar ao tema padrão
-
-st.title("💸 Controle Financeiro Básico")
+st.title("💸 **Controle Financeiro**")
 
 # Conexão
 spreadsheet = conectar_sheets_resource()
@@ -158,13 +178,24 @@ with st.form("form_transacao", clear_on_submit=True):
         key="mes_ref_c"
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
-    valor = col_c3.number_input("Valor (R$)", min_value=0.01, format="%.2f", key="val_c")
+    
+    # CHAVE DA CORREÇÃO: Usando st.text_input para aceitar a vírgula
+    valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 235,50 ou 1.235,50") 
+    
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
     
     submitted = st.form_submit_button("Lançar Transação!")
     
     if submitted:
-        if descricao and valor:
+        # Tenta converter o valor do texto para float usando a função de parse
+        try:
+            valor = parse_valor_monetario(valor_input)
+
+        except ValueError:
+            st.warning("O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Transação não lançada.")
+            st.stop() 
+        
+        if descricao and valor > 0:
             data_to_save = {
                 "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
                 "Mês": mes_referencia_c,
@@ -175,7 +206,7 @@ with st.form("form_transacao", clear_on_submit=True):
             adicionar_transacao(spreadsheet, data_to_save)
             t.sleep(1) 
         else:
-            st.warning("Descrição e Valor são obrigatórios.")
+            st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios. Não complique.")
 
 
 st.markdown("---") 
@@ -213,10 +244,14 @@ else:
 
         col1, col2, col3 = st.columns(3)
         
-        col1.metric("Total de Receitas", f"R$ {total_receita:,.2f}")
-        col2.metric("Total de Despesas", f"R$ {total_despesa:,.2f}")
+        # Função para formatar a moeda (exibição)
+        def format_currency(value):
+            return f"R$ {value:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
+
+        col1.metric("Total de Receitas", format_currency(total_receita))
+        col2.metric("Total de Despesas", format_currency(total_despesa))
         col3.metric("Valor Líquido Restante", 
-                    f"R$ {margem_liquida:,.2f}", 
+                    format_currency(margem_liquida), 
                     delta=f"{'NEGATIVO' if margem_liquida < 0 else 'POSITIVO'}", 
                     delta_color=margem_delta_color)
 
@@ -227,9 +262,7 @@ else:
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
         df_base_display = df_filtrado.copy()
-        df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(
-            lambda v: f"R$ {v:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-        )
+        df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(format_currency)
         
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
         df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
@@ -273,8 +306,8 @@ else:
             def formatar_selecao_transacao(id_val):
                 try:
                     df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
-                    valor_formatado = f"{df_linha['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-                    return f"{df_linha['Descricao']} ({df_linha['Mês']} | R$ {valor_formatado})"
+                    valor_formatado = format_currency(df_linha['Valor'])
+                    return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado})"
                 except:
                     return f"ID Inconsistente ({id_val[:4]}...)"
 
@@ -300,9 +333,11 @@ else:
                     with col_u:
                         st.markdown("##### Atualizar Transação Selecionada")
                         
+                        opcoes_categoria = ["Receita", "Despesa"]
+                        categoria_existente = transacao_dados.get('Categoria', opcoes_categoria[0])
+                        
                         with st.form("form_update_transacao_c"):
                             
-                            categoria_existente = transacao_dados['Categoria']
                             mes_existente = transacao_dados['Mês']
                             
                             try:
@@ -323,39 +358,49 @@ else:
                                 index=mes_idx, 
                                 key='ut_mes_c'
                             )
-
+                            
                             try:
-                                cat_index = ["Receita", "Despesa"].index(categoria_existente)
+                                cat_index = opcoes_categoria.index(categoria_existente)
                             except ValueError:
                                 cat_index = 0
                                 
-                            novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
+                            novo_categoria = col_upd_2.selectbox("Tipo de Transação", opcoes_categoria, index=cat_index, key='ut_tipo_c')
                             
-                            novo_valor = st.number_input("Valor (R$)", value=valor_existente, min_value=0.01, format="%.2f", key='ut_valor_c')
+                            # CHAVE DA CORREÇÃO: Usando st.text_input para edição e exibindo valor formatado em PT-BR
+                            valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
+                            novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
                             
                             novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
                             
                             update_button = st.form_submit_button("Salvar Atualizações (Update)")
 
                             if update_button:
-                                if novo_descricao and novo_valor:
+                                # Tenta converter o valor do texto para float usando a função de parse
+                                try:
+                                    novo_valor = parse_valor_monetario(novo_valor_input)
+                                    
+                                except ValueError:
+                                    st.warning("O campo Valor deve ser um número válido (ex: 235,50 ou 1.235,50). Atualização não realizada.")
+                                    st.stop()
+                                
+                                if novo_descricao and novo_valor > 0:
                                     dados_atualizados = {
                                         'ID Transacao': transacao_selecionada_id, 
                                         'Descricao': novo_descricao,
-                                        'Valor': novo_valor,
+                                        'Valor': novo_valor, 
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
                                     t.sleep(1)
                                 else:
-                                    st.warning("Descrição e Valor são obrigatórios na atualização.")
+                                    st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios na atualização.")
 
                     with col_d:
                         st.markdown("##### Excluir")
-                        st.warning(f"Excluindo: **{transacao_dados['Descricao']}** (R$ {transacao_dados['Valor']:,.2f})")
+                        st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])})")
                         
-                        if st.button("🔴 EXCLUIR TRANSAÇÃO (Delete)", type="primary", key='del_button_c'):
+                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
                             deletar_transacao(spreadsheet, transacao_selecionada_id)
                             t.sleep(1)
     else:
