@@ -1,4 +1,4 @@
-# controle.py (FINAL 3: Conversão de String BR Otimizada)
+# controle.py (FINAL 4: LIMPEZA INTELIGENTE DE SEPARADORES)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -64,28 +64,39 @@ def format_value_for_sheets(value):
 
 def limpar_e_converter_valor_br(valor_entrada):
     """
-    Converte uma string monetária BR (ex: '11,56' ou '1.156,00') em float (11.56).
+    Converte strings monetárias em float, tentando adivinhar se o formato é BR ou US.
+    A regra é: o último separador (ponto ou vírgula) é o decimal.
     """
-    valor_str = str(valor_entrada)
+    valor_str = str(valor_entrada).strip()
     
-    if not valor_str.strip():
+    if not valor_str:
         return 0.0
 
-    # 1. Remove quaisquer caracteres de moeda (R$, €) ou espaços
-    valor_limpo = valor_str.strip().replace('R$', '').replace('€', '').strip()
+    # 1. Remove símbolos de moeda e espaços extras
+    valor_limpo = valor_str.replace('R$', '').replace('€', '').replace('$', '').strip()
 
-    # 2. Se houver vírgula, assume-se BR (milhar com ponto, decimal com vírgula)
-    if ',' in valor_limpo:
-        # Remove todos os pontos (milhares)
-        valor_limpo = valor_limpo.replace('.', '')
-        # Troca a vírgula (decimal BR) por ponto (decimal Python)
-        valor_limpo = valor_limpo.replace(',', '.')
-    # 3. Se não houver vírgula, tenta converter diretamente (assumindo US ou inteiro)
-    
     try:
+        # Se a string tem vírgula (BR) E ponto (milhar US ou BR mal formatado)
+        if '.' in valor_limpo and ',' in valor_limpo:
+            # Assumimos que o último separador é o decimal.
+            if valor_limpo.index(',') > valor_limpo.index('.'):
+                # Caso BR: remove o ponto (milhar) e troca vírgula por ponto (decimal)
+                valor_limpo = valor_limpo.replace('.', '').replace(',', '.')
+            else:
+                # Caso US: remove a vírgula (milhar) e mantém o ponto (decimal)
+                valor_limpo = valor_limpo.replace(',', '')
+                
+        # Se só tem vírgula (BR simples)
+        elif ',' in valor_limpo:
+            # Caso BR: troca vírgula por ponto (decimal)
+            valor_limpo = valor_limpo.replace(',', '.')
+        
+        # Se só tem ponto (US simples ou número inteiro) -> mantemos
+
+        # Converte para float
         return float(valor_limpo)
+        
     except ValueError:
-        # Se a conversão falhar (ex: texto), retorna zero
         return 0.0 
 
 # =================================================================
@@ -132,11 +143,12 @@ def carregar_dados():
         return pd.DataFrame()
         
     try:
+        # Lemos a planilha (obtemos a string VISÍVEL)
         df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
 
         if not df_transacoes.empty:
             
-            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL OTIMIZADA ---
+            # --- USO DA FUNÇÃO DE LIMPEZA MANUAL OTIMIZADA (MAIS ESPERTA) ---
             df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor_br)
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
