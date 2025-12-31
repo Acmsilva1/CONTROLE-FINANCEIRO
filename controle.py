@@ -1,4 +1,4 @@
-# controle.py (FINALÍSSIMA II: FORÇANDO VALOR NUMÉRICO BRUTO NA LEITURA)
+# controle.py (FINAL E COM LOCALIZAÇÃO BR CORRETA NO PANDAS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -26,8 +26,7 @@ MESES_PT = {
 
 def format_currency(value):
     """
-    Formata um float (ex: 11.56) para string monetária BR (R$ 11,56)
-    forçando o uso de ponto (.) como separador decimal.
+    Formata um float (ex: 11.56) para string monetária BR (R$ 11,56).
     """
     if value is None or value == 0.0:
         return "R$ 0,00"
@@ -54,7 +53,7 @@ def format_currency(value):
 def format_value_for_sheets(value):
     """
     Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
-    Isso ajuda quando a coluna está formatada como Moeda BR.
+    Isso é feito para que o Google Sheets com formatação BR aceite o valor corretamente.
     """
     if value is None or value == 0.0:
         return "0,00"
@@ -103,25 +102,25 @@ def conectar_sheets_resource():
 
 @st.cache_data(ttl=10) 
 def carregar_dados(): 
-    """Lê a aba TRANSACOES e retorna como DataFrame, forçando valor bruto."""
+    """Lê a aba TRANSACOES e retorna como DataFrame, corrigindo o separador decimal BR."""
     spreadsheet = conectar_sheets_resource() 
     if spreadsheet is None:
         return pd.DataFrame()
         
     try:
-        # --- MUDANÇA CRÍTICA: LENDO VALOR BRUTO ---
-        # 'UNFORMATTED_VALUE' ignora a formatação da célula (vírgula/ponto)
-        # e retorna o valor numérico subjacente (e.g., 11.56), se a célula for um número.
-        data = spreadsheet.worksheet(ABA_TRANSACOES).get_all_values(value_render_option='UNFORMATTED_VALUE')
-        
-        # Cria o DataFrame a partir dos dados lidos
-        header = data[0]
-        records = data[1:] 
-        df_transacoes = pd.DataFrame(records, columns=header) 
+        # Método robusto para ler a planilha
+        df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
 
         if not df_transacoes.empty:
-            # Converte diretamente para float. O Sheets agora deve retornar '11.56'
-            df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
+            
+            # --- CORREÇÃO CRÍTICA DE LOCALIZAÇÃO (PANDAS) ---
+            # Dizemos ao Pandas que a vírgula (,) é o separador DECIMAL.
+            # Se o dado vier como a string '11,56', ele vira o float 11.56.
+            df_transacoes['Valor'] = pd.to_numeric(
+                df_transacoes['Valor'], 
+                errors='coerce', 
+                decimal=','
+            )
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
@@ -138,13 +137,13 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # Formata o valor float para string BR antes de enviar (Para que o Sheets mostre 11,56)
+        # Formata o valor float para string BR antes de enviar (Para Sheets com locale BR)
         dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
         
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         sheet.append_row(nova_linha)
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
-        carregar_dados.clear() 
+        carregar_dados.clear() # Limpa o cache para forçar nova leitura
         return True
     except Exception as e:
         st.error(f"Erro ao adicionar transação: {e}")
@@ -277,14 +276,18 @@ else:
     
     st.sidebar.header("🗓️ Filtro de Período")
     
-    meses_disponiveis = df_transacoes[['Mês', 'Mes_Num']].drop_duplicates().sort_values(by='Mes_Num', ascending=False)['Mês'].tolist()
-    
+    # Garante que as colunas existam antes de tentar acessá-las
+    if 'Mês' in df_transacoes.columns and 'Mes_Num' in df_transacoes.columns:
+        meses_disponiveis = df_transacoes[['Mês', 'Mes_Num']].drop_duplicates().sort_values(by='Mes_Num', ascending=False)['Mês'].tolist()
+    else:
+        meses_disponiveis = []
+        
     if meses_disponiveis:
         selected_month = st.sidebar.selectbox("Selecione o Mês:", options=meses_disponiveis, index=0)
     else:
         selected_month = None
 
-    if selected_month:
+    if selected_month and 'Mês' in df_transacoes.columns:
         df_filtrado = df_transacoes[df_transacoes['Mês'] == selected_month].copy()
     else:
         df_filtrado = pd.DataFrame() 
@@ -292,7 +295,7 @@ else:
 
     st.header(f"📊 Dashboard Básico ({selected_month or 'Nenhum Mês Selecionado'})")
     
-    if not df_filtrado.empty:
+    if not df_filtrado.empty and 'Valor' in df_filtrado.columns:
         
         total_receita = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
         total_despesa = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
@@ -393,6 +396,7 @@ else:
                             mes_existente = transacao_dados['Mês']
                             
                             try:
+                                # Garante que o valor existente seja um float válido
                                 valor_existente = float(transacao_dados['Valor']) 
                                 # Separando o valor existente para o novo input
                                 reais_existentes = int(valor_existente)
@@ -478,7 +482,11 @@ else:
                             deletar_transacao(spreadsheet, transacao_selecionada_id)
                             t.sleep(1)
     else:
-        st.info(f"Sem transações para o mês de **{selected_month}**.")
+        # Só exibe se a falha não for por falta de dados após a filtragem
+        if selected_month and not df_filtrado.empty:
+             st.error("Erro na coluna 'Valor' do DataFrame filtrado. Verifique a planilha.")
+        elif selected_month:
+             st.info(f"Sem transações para o mês de **{selected_month}**.")
 
 
 with st.sidebar:
