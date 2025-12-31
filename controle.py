@@ -1,4 +1,4 @@
-# controle.py (FINAL, VALOR MONETÁRIO COM TEXT INPUT)
+# controle.py (FINAL, VALOR MONETÁRIO COM TEXT INPUT E CAMPO VAZIO NA CRIAÇÃO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -157,8 +157,8 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # MODIFICAÇÃO: Usando st.text_input para valor monetário (sem setas/steppers)
-    valor_input = col_c3.text_input("Valor (R$)", value="0,00", key="val_c") 
+    # MODIFICAÇÃO: Usando st.text_input vazio com placeholder
+    valor_input = col_c3.text_input("Valor (R$)", value="", key="val_c", placeholder="Ex: 1500,50 ou 1500.50") 
     
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
     
@@ -340,9 +340,9 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # MODIFICAÇÃO: Usando st.text_input para valor monetário (sem setas/steppers)
-                            valor_existente_str = f"{valor_existente:.2f}".replace('.', ',')
-                            novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str, key='ut_valor_c')
+                            # Mantendo o valor preenchido na edição
+                            valor_existente_str_clean = f"{valor_existente:.2f}".replace('.', ',')
+                            novo_valor_input = st.text_input("Valor (R$)", value=valor_existente_str_clean, key='ut_valor_c')
                             
                             novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
                             
