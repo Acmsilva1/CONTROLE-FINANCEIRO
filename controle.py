@@ -1,4 +1,4 @@
-# controle.py (FINAL 6: LEITURA DE VALOR PURO)
+# controle.py (FINAL 7: ENVIO DE VALOR FLOAT PURO COM USER_ENTERED)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -27,6 +27,7 @@ MESES_PT = {
 def format_currency(value):
     """
     Formata um float (ex: 11.56) para string monetária BR (R$ 11,56).
+    (Usada apenas para exibição no Streamlit)
     """
     if value is None or value == 0.0:
         return "R$ 0,00"
@@ -52,9 +53,9 @@ def format_currency(value):
 
 def format_value_for_sheets(value):
     """
-    Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
-    NOTA: Ao inserir, o Sheets pode reinterpretar. Usar o valor puro 11.56 é geralmente melhor, 
-    mas mantive esta função para a formatação BR original. Se possível, insira o float direto.
+    MANTIDA: Formata o float para uma string BR (ex: '11,56')
+    NOTA: Esta função NÃO SERÁ MAIS USADA nas funções de escrita abaixo (adicionar/atualizar)
+    para evitar erros de interpretação do Sheets.
     """
     if value is None or value == 0.0:
         return "0,00"
@@ -66,27 +67,19 @@ def format_value_for_sheets(value):
 
 def limpar_e_converter_valor_br(valor_entrada):
     """
-    Converte strings monetárias em float, assumindo o formato BR (vírgula decimal).
-    Método AGRESSIVO: Remove todos os pontos e substitui a vírgula por ponto (decimal).
-    Esta função é mantida, mas não mais usada na leitura do Sheets (carregar_dados)
-    pois agora usamos UNFORMATTED_VALUE.
+    Função de limpeza de strings BR, mantida para utilidade geral, 
+    mas não mais usada na leitura do Sheets.
     """
     valor_str = str(valor_entrada).strip()
     
     if not valor_str:
         return 0.0
 
-    # 1. Remove símbolos de moeda e espaços
     valor_limpo = valor_str.replace('R$', '').replace('€', '').replace('$', '').strip()
 
     try:
-        # A. Remove TODOS os pontos (assumindo que são separadores de milhar)
         valor_limpo = valor_limpo.replace('.', '')
-        
-        # B. Troca a vírgula (decimal BR) por ponto (decimal Python)
         valor_limpo = valor_limpo.replace(',', '.')
-
-        # C. Converte para float
         return float(valor_limpo)
         
     except ValueError:
@@ -136,17 +129,15 @@ def carregar_dados():
         return pd.DataFrame()
         
     try:
-        # MUDANÇA: Usamos UNFORMATTED_VALUE para garantir que 'Valor' venha como número (11.56) 
-        # e não como string formatada BR ('11,56' ou '1.156,00').
+        # LÊ O VALOR PURO (UNFORMATTED_VALUE) - SOLUÇÃO DE LEITURA
         records = spreadsheet.worksheet(ABA_TRANSACOES).get_all_records(
              value_render_option='UNFORMATTED_VALUE', 
-             head=1 # Garantimos que o cabeçalho seja respeitado
+             head=1 
         )
         df_transacoes = pd.DataFrame(records)
 
         if not df_transacoes.empty:
             
-            # Garante que a coluna Valor seja numérica (Float)
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
@@ -160,16 +151,18 @@ def carregar_dados():
 
 
 def adicionar_transacao(spreadsheet, dados_do_form):
-    """Insere uma nova linha de transação no Sheets. Formata Valor para String BR."""
+    """Insere uma nova linha de transação no Sheets. ENVIA O VALOR FLOAT PURO."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # Mantive a função de formatação para inserção para garantir compatibilidade com locale BR,
-        # embora o Sheets geralmente aceite o float direto.
-        dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
+        # O valor é um FLOAT (ex: 11.56). Enviamos ele diretamente.
+        # REMOVIDA: dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
         
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
-        sheet.append_row(nova_linha)
+        
+        # MUDANÇA CRÍTICA DE ESCRITA: USER_ENTERED interpreta o float corretamente 
+        # (11.56) conforme o Locale do Sheets (BR).
+        sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
         carregar_dados.clear() # Limpa o cache para forçar nova leitura
         return True
@@ -178,18 +171,19 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         return False
 
 def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
-    """Atualiza uma transação existente. Formata Valor para String BR."""
+    """Atualiza uma transação existente. ENVIA O VALOR FLOAT PURO."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
         
-        # Mantive a função de formatação para inserção
-        novos_dados['Valor'] = format_value_for_sheets(novos_dados['Valor'])
+        # O valor é um FLOAT. Enviamos ele diretamente.
+        # REMOVIDA: novos_dados['Valor'] = format_value_for_sheets(novos_dados['Valor'])
         
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
-        sheet.update(f'A{linha_index}', [valores_atualizados])
+        # MUDANÇA CRÍTICA DE ESCRITA: USER_ENTERED
+        sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
         st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
         carregar_dados.clear()
         return True
@@ -286,7 +280,7 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Mês": mes_referencia_c,
                 "Descricao": descricao, 
                 "Categoria": categoria, 
-                "Valor": valor 
+                "Valor": valor # Enviando o float (ex: 11.56)
             }
             adicionar_transacao(spreadsheet, data_to_save) 
             t.sleep(1) 
@@ -306,7 +300,6 @@ else:
     
     # Garante que as colunas existam antes de tentar acessá-las
     if 'Mês' in df_transacoes.columns and 'Mes_Num' in df_transacoes.columns:
-        # AQUI É IMPORTANTE: Só pega meses únicos e ordena pelo número do mês
         meses_disponiveis = df_transacoes[['Mês', 'Mes_Num']].drop_duplicates().sort_values(by='Mes_Num', ascending=False)['Mês'].tolist()
     else:
         meses_disponiveis = []
@@ -494,7 +487,7 @@ else:
                                     dados_atualizados = {
                                         'ID Transacao': transacao_selecionada_id, 
                                         'Descricao': novo_descricao,
-                                        'Valor': novo_valor, 
+                                        'Valor': novo_valor, # Enviando o float
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
                                     }
