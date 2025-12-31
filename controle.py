@@ -1,4 +1,4 @@
-# controle.py (FINAL, COM FORMATAÇÃO DE OUTPUT FORÇADA E SEGURA)
+# controle.py (FINAL, COM FORMATAÇÃO BR NA ESCRITA PARA O SHEETS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -21,7 +21,7 @@ MESES_PT = {
 }
 
 # =================================================================
-# === FUNÇÃO DE FORMATAÇÃO (REFORÇADA) ===
+# === FUNÇÕES DE FORMATAÇÃO E PARSING ===
 # =================================================================
 
 def format_currency(value):
@@ -33,8 +33,6 @@ def format_currency(value):
         return "R$ 0,00"
         
     # 1. Converte o float para string garantindo duas casas decimais (Ex: '11.56')
-    # Usamos o format(value, '.2f') para garantir o ponto como decimal
-    # e evitamos separadores de milhar neste passo.
     valor_str = "{:.2f}".format(value)
     
     # 2. Separa a parte inteira e a parte decimal
@@ -43,15 +41,12 @@ def format_currency(value):
     centavos = partes[1]
     
     # 3. Formata a parte inteira (reais) com separador de milhar BR (ponto)
-    # Ex: '1156' -> '1.156' (Se fosse esse o valor, no caso é '11')
-    
     reais_formatados = []
-    # Itera de 3 em 3 dígitos do final para o começo
     for i in range(len(reais), 0, -3):
         start = max(0, i - 3)
         reais_formatados.insert(0, reais[start:i])
         
-    reais_com_ponto = ".".join(reais_formatados) # Ex: '11' ou '1.156'
+    reais_com_ponto = ".".join(reais_formatados)
     
     # 4. Junta tudo com a vírgula decimal
     valor_final = f"{reais_com_ponto},{centavos}"
@@ -59,9 +54,26 @@ def format_currency(value):
     # 5. Adiciona o símbolo R$
     return f"R$ {valor_final}"
 
+def format_value_for_sheets(value):
+    """
+    Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
+    Se a coluna estiver como 'Moeda', o Sheets deve interpretar corretamente.
+    """
+    if value is None or value == 0.0:
+        return "0,00"
+        
+    # 1. Formata o valor como string, garantindo duas casas decimais
+    valor_str = "{:.2f}".format(value)
+    
+    # 2. Troca o ponto decimal por vírgula decimal (formato BR)
+    return valor_str.replace('.', ',')
+
+
 # =================================================================
-# === FUNÇÕES DE CONEXÃO E GOVERNANÇA (inalteradas) ===
+# === FUNÇÕES DE CONEXÃO E GOVERNANÇA (APENAS ESCREVER ALTERADA) ===
 # =================================================================
+# ... (Funções get_service_account_credentials e conectar_sheets_resource inalteradas)
+# ... (Função carregar_dados inalterada)
 
 def get_service_account_credentials():
     """Carrega as credenciais da conta de serviço."""
@@ -118,9 +130,14 @@ def carregar_dados():
 
 
 def adicionar_transacao(spreadsheet, dados_do_form):
-    """Insere uma nova linha de transação no Sheets."""
+    """Insere uma nova linha de transação no Sheets. Formata Valor para String BR."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
+        
+        # --- AQUI ESTÁ A MUDANÇA CRÍTICA ---
+        # Formata o valor float para string BR antes de enviar.
+        dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
+        
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         sheet.append_row(nova_linha)
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
@@ -131,11 +148,16 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         return False
 
 def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
-    """Atualiza uma transação existente."""
+    """Atualiza uma transação existente. Formata Valor para String BR."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
+        
+        # --- AQUI ESTÁ A MUDANÇA CRÍTICA ---
+        # Formata o valor float para string BR antes de enviar.
+        novos_dados['Valor'] = format_value_for_sheets(novos_dados['Valor'])
+        
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
         sheet.update(f'A{linha_index}', [valores_atualizados])
@@ -161,7 +183,7 @@ def deletar_transacao(spreadsheet, id_transacao):
         return False
 
 # =================================================================
-# === INTERFACE STREAMLIT (UI) ===
+# === INTERFACE STREAMLIT (UI - inalterada) ===
 # =================================================================
 
 st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
@@ -235,9 +257,9 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Mês": mes_referencia_c,
                 "Descricao": descricao, 
                 "Categoria": categoria, 
-                "Valor": valor
+                "Valor": valor # Enviamos o float 11.56
             }
-            adicionar_transacao(spreadsheet, data_to_save)
+            adicionar_transacao(spreadsheet, data_to_save) # A função adiciona vai formatar para '11,56'
             t.sleep(1) 
         else:
             st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios. Não complique.")
@@ -437,11 +459,11 @@ else:
                                     dados_atualizados = {
                                         'ID Transacao': transacao_selecionada_id, 
                                         'Descricao': novo_descricao,
-                                        'Valor': novo_valor,
+                                        'Valor': novo_valor, # Enviamos o float 11.56
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
                                     }
-                                    atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
+                                    atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) # A função atualizar vai formatar para '11,56'
                                     t.sleep(1)
                                 else:
                                     st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
