@@ -1,4 +1,4 @@
-# controle.py (FINALÍSSIMA, COM LIMPEZA BR NA LEITURA E ESCRITA)
+# controle.py (FINALÍSSIMA II: FORÇANDO VALOR NUMÉRICO BRUTO NA LEITURA)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -34,6 +34,7 @@ def format_currency(value):
         
     valor_str = "{:.2f}".format(value)
     
+    # 1. Separa e formata a parte inteira com separador de milhar BR (ponto)
     partes = valor_str.split('.')
     reais = partes[0]
     centavos = partes[1]
@@ -45,6 +46,7 @@ def format_currency(value):
         
     reais_com_ponto = ".".join(reais_formatados)
     
+    # 2. Junta tudo com a vírgula decimal
     valor_final = f"{reais_com_ponto},{centavos}"
     
     return f"R$ {valor_final}"
@@ -52,30 +54,15 @@ def format_currency(value):
 def format_value_for_sheets(value):
     """
     Formata o float (ex: 11.56) para uma string BR (ex: '11,56') para ser inserida no Sheets.
+    Isso ajuda quando a coluna está formatada como Moeda BR.
     """
     if value is None or value == 0.0:
         return "0,00"
         
     valor_str = "{:.2f}".format(value)
     
+    # Troca o ponto decimal por vírgula decimal (formato BR)
     return valor_str.replace('.', ',')
-
-def limpar_e_converter_valor(valor_str):
-    """
-    Função CRÍTICA para converter a string BR ('11,56') lida do Sheets para float (11.56).
-    """
-    if pd.isna(valor_str) or valor_str is None or str(valor_str).strip() == "":
-        return 0.0
-        
-    # Remove separadores de milhar (ponto, se houver)
-    valor_limpo = str(valor_str).replace('.', '')
-    # Troca a vírgula decimal (BR) por ponto decimal (Python/Pandas)
-    valor_limpo = valor_limpo.replace(',', '.')
-    
-    try:
-        return float(valor_limpo)
-    except ValueError:
-        return 0.0 # Retorna 0.0 se a conversão ainda falhar
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
@@ -84,6 +71,7 @@ def limpar_e_converter_valor(valor_str):
 def get_service_account_credentials():
     """Carrega as credenciais da conta de serviço."""
     try:
+        # Usa st.secrets para carregar as credenciais
         creds_dict = st.secrets["gcp_service_account"] 
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
@@ -115,18 +103,25 @@ def conectar_sheets_resource():
 
 @st.cache_data(ttl=10) 
 def carregar_dados(): 
-    """Lê a aba TRANSACOES e retorna como DataFrame."""
+    """Lê a aba TRANSACOES e retorna como DataFrame, forçando valor bruto."""
     spreadsheet = conectar_sheets_resource() 
     if spreadsheet is None:
         return pd.DataFrame()
         
     try:
-        df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
+        # --- MUDANÇA CRÍTICA: LENDO VALOR BRUTO ---
+        # 'UNFORMATTED_VALUE' ignora a formatação da célula (vírgula/ponto)
+        # e retorna o valor numérico subjacente (e.g., 11.56), se a célula for um número.
+        data = spreadsheet.worksheet(ABA_TRANSACOES).get_all_values(value_render_option='UNFORMATTED_VALUE')
+        
+        # Cria o DataFrame a partir dos dados lidos
+        header = data[0]
+        records = data[1:] 
+        df_transacoes = pd.DataFrame(records, columns=header) 
 
         if not df_transacoes.empty:
-            # --- MUDANÇA CRÍTICA AQUI ---
-            # Aplicamos a limpeza e conversão de '11,56' -> 11.56
-            df_transacoes['Valor'] = df_transacoes['Valor'].apply(limpar_e_converter_valor)
+            # Converte diretamente para float. O Sheets agora deve retornar '11.56'
+            df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
@@ -143,7 +138,7 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # Formata o valor float para string BR antes de enviar.
+        # Formata o valor float para string BR antes de enviar (Para que o Sheets mostre 11,56)
         dados_do_form['Valor'] = format_value_for_sheets(dados_do_form['Valor'])
         
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
