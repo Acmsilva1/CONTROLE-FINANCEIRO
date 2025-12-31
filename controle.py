@@ -1,7 +1,7 @@
-# controle.py (FINAL, UNIFICADO E 100% CORRIGIDO)
+# controle.py (FINAL, FILTRAGEM POR MÊS E NOME DE COLUNA ATUALIZADO)
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime
 import uuid
 import time as t 
 from streamlit_autorefresh import st_autorefresh 
@@ -11,7 +11,15 @@ from google.oauth2 import service_account
 # --- CONFIGURAÇÕES DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
 ABA_TRANSACOES = "TRANSACOES" 
-COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Data', 'Descricao', 'Categoria', 'Valor']
+# ALTERAÇÃO: Nome da coluna de 'Mes Referencia' para 'Mês'
+COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor']
+
+# Lista de meses em português para uso na UI e como chave de ordenação
+MESES_PT = {
+    1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr', 
+    5: 'Mai', 6: 'Jun', 7: 'Jul', 8: 'Ago', 
+    9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
+}
 
 # =================================================================
 # === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
@@ -60,11 +68,14 @@ def carregar_dados():
         df_transacoes = pd.DataFrame(spreadsheet.worksheet(ABA_TRANSACOES).get_all_records())
 
         if not df_transacoes.empty:
-            # LER: dayfirst=True para formato brasileiro DD/MM/YYYY
-            df_transacoes['Data'] = pd.to_datetime(df_transacoes['Data'], dayfirst=True, errors='coerce')
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
-            df_transacoes = df_transacoes.dropna(subset=['Data', 'Valor']).copy() 
-        
+            
+            # ATUALIZADO: Dropna usa a nova coluna 'Mês'
+            df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
+            
+            # Adiciona coluna numérica para ordenação
+            df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
+
         return df_transacoes
         
     except Exception as e:
@@ -76,6 +87,7 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     """Insere uma nova linha de transação no Sheets."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
+        # Usa a ordem da COLUNAS_SIMPLIFICADAS atualizada
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         sheet.append_row(nova_linha)
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
@@ -91,6 +103,7 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
+        # Usa a ordem da COLUNAS_SIMPLIFICADAS atualizada
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
         sheet.update(f'A{linha_index}', [valores_atualizados])
@@ -141,7 +154,13 @@ st.header("📥 Registrar Nova Transação (Create)")
 with st.form("form_transacao", clear_on_submit=True):
     col_c1, col_c2, col_c3 = st.columns(3)
     
-    data = col_c1.date_input("Data da Transação", value=date.today(), key="data_c")
+    mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
+    mes_referencia_c = col_c1.selectbox(
+        "Mês", 
+        options=list(MESES_PT.values()), 
+        index=list(MESES_PT.values()).index(mes_atual), 
+        key="mes_ref_c"
+    )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     valor = col_c3.number_input("Valor (R$)", min_value=0.01, format="%.2f", key="val_c")
     descricao = st.text_input("Descrição Detalhada", key="desc_c")
@@ -152,15 +171,15 @@ with st.form("form_transacao", clear_on_submit=True):
         if descricao and valor:
             data_to_save = {
                 "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
-                "Data": data.strftime('%d/%m/%Y'),
+                "Mês": mes_referencia_c, # CAMPO ATUALIZADO
                 "Descricao": descricao, 
                 "Categoria": categoria, 
                 "Valor": valor
             }
             adicionar_transacao(spreadsheet, data_to_save)
-            t.sleep(1) # Rerenderiza após a inserção
+            t.sleep(1) 
         else:
-            st.warning("Descrição e Valor são obrigatórios. Simplifique, mas não tanto.")
+            st.warning("Descrição e Valor são obrigatórios. Não complique.")
 
 
 st.markdown("---") 
@@ -170,135 +189,161 @@ if df_transacoes.empty:
 else:
     
     # --- FILTROS E DASHBOARD ---
-    df_transacoes['Ano_Mes'] = df_transacoes['Data'].dt.to_period('M').astype(str)
     
     st.sidebar.header("🗓️ Filtro de Período")
-    all_periods = sorted(df_transacoes['Ano_Mes'].unique(), reverse=True)
-    selected_period = st.sidebar.selectbox("Selecione o Mês/Ano:", options=all_periods, index=0)
-    df_filtrado = df_transacoes[df_transacoes['Ano_Mes'] == selected_period].copy()
+    
+    # ATUALIZADO: Filtro baseado na coluna 'Mês'
+    meses_disponiveis = df_transacoes[['Mês', 'Mes_Num']].drop_duplicates().sort_values(by='Mes_Num', ascending=False)['Mês'].tolist()
+    
+    if meses_disponiveis:
+        selected_month = st.sidebar.selectbox("Selecione o Mês:", options=meses_disponiveis, index=0)
+    else:
+        selected_month = None
 
-    st.header(f"📊 Dashboard Básico ({selected_period})")
+    if selected_month:
+        # ATUALIZADO: Aplica o filtro na coluna 'Mês'
+        df_filtrado = df_transacoes[df_transacoes['Mês'] == selected_month].copy()
+    else:
+        df_filtrado = pd.DataFrame() 
+
+
+    st.header(f"📊 Dashboard Básico ({selected_month or 'Nenhum Mês Selecionado'})")
+    
+    if not df_filtrado.empty:
         
-    total_receita = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
-    total_despesa = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
-    margem_liquida = total_receita - total_despesa
-    
-    margem_delta_color = "inverse" if margem_liquida < 0 else "normal"
-
-    col1, col2, col3 = st.columns(3)
-    
-    col1.metric("Total de Receitas", f"R$ {total_receita:,.2f}")
-    col2.metric("Total de Despesas", f"R$ {total_despesa:,.2f}")
-    col3.metric("Valor Líquido Restante", 
-                f"R$ {margem_liquida:,.2f}", 
-                delta=f"{'NEGATIVO' if margem_liquida < 0 else 'POSITIVO'}", 
-                delta_color=margem_delta_color)
-
-    st.markdown("---")
-    
-    # === VISUALIZAÇÃO DA TABELA (READ) ===
-
-    st.subheader(f"📑 Registros de Transações ({selected_period})")
-    
-    df_display = df_filtrado[COLUNAS_SIMPLIFICADAS].copy()
-    df_display['Data'] = df_display['Data'].dt.strftime('%d/%m/%Y') 
-    
-    df_display['Valor'] = df_display.apply(
-        lambda row: f"R$ {row['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ','), axis=1
-    )
-    
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
-
-    st.markdown("---") 
-
-    # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) (Corrigida) ===
-
-    st.header("🛠️ Edição e Exclusão (Update/Delete)")
-    
-    with st.expander("📝 Gerenciar Transação", expanded=True):
+        total_receita = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
+        total_despesa = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
+        margem_liquida = total_receita - total_despesa
         
-        transacoes_atuais = df_transacoes['ID Transacao'].tolist()
-        
-        def formatar_selecao_transacao(id_val):
-            try:
-                df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0]
-                valor_formatado = f"{df_linha['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
-                return f"{df_linha['Descricao']} (R$ {valor_formatado} - {id_val[:4]}...)"
-            except:
-                return f"ID Inconsistente ({id_val[:4]}...)"
+        margem_delta_color = "inverse" if margem_liquida < 0 else "normal"
 
-        transacao_selecionada_id = st.selectbox(
-            "Selecione a Transação para Ação (Edição/Exclusão):",
-            options=transacoes_atuais,
-            index=0 if transacoes_atuais else None,
-            format_func=formatar_selecao_transacao,
-            key='sel_upd_del_c'
+        col1, col2, col3 = st.columns(3)
+        
+        col1.metric("Total de Receitas", f"R$ {total_receita:,.2f}")
+        col2.metric("Total de Despesas", f"R$ {total_despesa:,.2f}")
+        col3.metric("Valor Líquido Restante", 
+                    f"R$ {margem_liquida:,.2f}", 
+                    delta=f"{'NEGATIVO' if margem_liquida < 0 else 'POSITIVO'}", 
+                    delta_color=margem_delta_color)
+
+        st.markdown("---")
+        
+        # === VISUALIZAÇÃO DA TABELA (READ) ===
+
+        st.subheader(f"📑 Registros de Transações ({selected_month})")
+        
+        df_display = df_filtrado[COLUNAS_SIMPLIFICADAS].copy()
+        
+        df_display['Valor'] = df_display.apply(
+            lambda row: f"R$ {row['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ','), axis=1
         )
-    
-        if transacao_selecionada_id:
-            try:
-                transacao_dados = df_transacoes[df_transacoes['ID Transacao'] == transacao_selecionada_id].iloc[0]
-            except IndexError:
-                st.error("Dados da transação selecionada não encontrados. Tente recarregar.")
-                transacao_dados = None
-                
-            if transacao_dados is not None:
+        
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-                col_u, col_d = st.columns([4, 1])
+        st.markdown("---") 
 
-                with col_u:
-                    st.markdown("##### Atualizar Transação Selecionada")
+        # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) ===
+
+        st.header("🛠️ Edição e Exclusão (Update/Delete)")
+        
+        with st.expander("📝 Gerenciar Transação", expanded=True):
+            
+            transacoes_atuais = df_filtrado['ID Transacao'].tolist()
+            
+            def formatar_selecao_transacao(id_val):
+                try:
+                    df_linha = df_filtrado[df_filtrado['ID Transacao'] == id_val].iloc[0]
+                    valor_formatado = f"{df_linha['Valor']:,.2f}".replace('.', '#').replace(',', '.').replace('#', ',')
+                    # ATUALIZADO: Exibe a coluna 'Mês'
+                    return f"{df_linha['Descricao']} ({df_linha['Mês']} | R$ {valor_formatado})"
+                except:
+                    return f"ID Inconsistente ({id_val[:4]}...)"
+
+            transacao_selecionada_id = st.selectbox(
+                "Selecione a Transação para Ação (Edição/Exclusão):",
+                options=transacoes_atuais,
+                index=0 if transacoes_atuais else None,
+                format_func=formatar_selecao_transacao,
+                key='sel_upd_del_c'
+            )
+        
+            if transacao_selecionada_id:
+                try:
+                    transacao_dados = df_transacoes[df_transacoes['ID Transacao'] == transacao_selecionada_id].iloc[0]
+                except IndexError:
+                    st.error("Dados da transação selecionada não encontrados.")
+                    transacao_dados = None
                     
-                    with st.form("form_update_transacao_c"):
+                if transacao_dados is not None:
+
+                    col_u, col_d = st.columns([4, 1])
+
+                    with col_u:
+                        st.markdown("##### Atualizar Transação Selecionada")
                         
-                        data_existente = pd.to_datetime(transacao_dados['Data']).date()
-                        categoria_existente = transacao_dados['Categoria']
-                        
-                        # --- FIX CRÍTICO: Conversão segura para float ---
-                        try:
-                            valor_existente = float(transacao_dados['Valor']) 
-                        except (ValueError, TypeError):
-                            valor_existente = 0.0 
-                        # ----------------------------------------------------
-                        
-                        col_upd_1, col_upd_2 = st.columns(2)
-                        
-                        try:
-                            cat_index = ["Receita", "Despesa"].index(categoria_existente)
-                        except ValueError:
-                            cat_index = 0
+                        with st.form("form_update_transacao_c"):
                             
-                        novo_categoria = col_upd_1.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
-                        novo_valor = col_upd_2.number_input("Valor (R$)", value=valor_existente, min_value=0.01, format="%.2f", key='ut_valor_c')
-                        
-                        novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
-                        
-                        novo_data = st.date_input("Data", value=data_existente, key='ut_data_c')
-                        
-                        # BOTÃO DE SUBMIT NO FINAL DO FORM
-                        update_button = st.form_submit_button("Salvar Atualizações (Update)")
+                            categoria_existente = transacao_dados['Categoria']
+                            # ATUALIZADO: Lê a coluna 'Mês'
+                            mes_existente = transacao_dados['Mês']
+                            
+                            try:
+                                valor_existente = float(transacao_dados['Valor']) 
+                            except (ValueError, TypeError):
+                                valor_existente = 0.0 
+                            
+                            col_upd_1, col_upd_2 = st.columns(2)
+                            
+                            # Selectbox de Meses na edição
+                            try:
+                                mes_idx = list(MESES_PT.values()).index(mes_existente)
+                            except ValueError:
+                                mes_idx = 0 
+                                
+                            novo_mes = col_upd_1.selectbox(
+                                "Mês", 
+                                list(MESES_PT.values()), 
+                                index=mes_idx, 
+                                key='ut_mes_c'
+                            )
 
-                        if update_button:
-                            if novo_descricao and novo_valor:
-                                dados_atualizados = {
-                                    'ID Transacao': transacao_selecionada_id, 
-                                    'Descricao': novo_descricao,
-                                    'Valor': novo_valor,
-                                    'Categoria': novo_categoria,
-                                    'Data': novo_data.strftime('%d/%m/%Y'), 
-                                }
-                                atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
-                                t.sleep(1)
-                            else:
-                                st.warning("Descrição e Valor são obrigatórios na atualização.")
+                            try:
+                                cat_index = ["Receita", "Despesa"].index(categoria_existente)
+                            except ValueError:
+                                cat_index = 0
+                                
+                            novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
+                            
+                            novo_valor = st.number_input("Valor (R$)", value=valor_existente, min_value=0.01, format="%.2f", key='ut_valor_c')
+                            
+                            novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
+                            
+                            update_button = st.form_submit_button("Salvar Atualizações (Update)")
 
-                with col_d:
-                    st.markdown("##### Excluir")
-                    st.warning(f"Excluindo: **{transacao_dados['Descricao']}** (R$ {transacao_dados['Valor']:,.2f})")
-                    
-                    if st.button("🔴 EXCLUIR TRANSAÇÃO (Delete)", type="primary", key='del_button_c'):
-                        deletar_transacao(spreadsheet, transacao_selecionada_id)
-                        t.sleep(1)
+                            if update_button:
+                                if novo_descricao and novo_valor:
+                                    dados_atualizados = {
+                                        'ID Transacao': transacao_selecionada_id, 
+                                        'Descricao': novo_descricao,
+                                        'Valor': novo_valor,
+                                        'Categoria': novo_categoria,
+                                        'Mês': novo_mes, # CAMPO ATUALIZADO
+                                    }
+                                    atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados)
+                                    t.sleep(1)
+                                else:
+                                    st.warning("Descrição e Valor são obrigatórios na atualização.")
+
+                    with col_d:
+                        st.markdown("##### Excluir")
+                        st.warning(f"Excluindo: **{transacao_dados['Descricao']}** (R$ {transacao_dados['Valor']:,.2f})")
+                        
+                        if st.button("🔴 EXCLUIR TRANSAÇÃO (Delete)", type="primary", key='del_button_c'):
+                            deletar_transacao(spreadsheet, transacao_selecionada_id)
+                            t.sleep(1)
+    else:
+        st.info(f"Sem transações para o mês de **{selected_month}**.")
+
 
 with st.sidebar:
     st.markdown("---")
