@@ -70,7 +70,6 @@ def save_transaction_to_gsheets(data_dict):
         new_id = f"TRX-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:4]}"
 
         # Ordem das colunas: ID Transacao, Data, Descricao, Valor, Tipo, Categoria, Subcategoria, Conta/Meio, Status
-        # A data é salva no formato DD/MM/YYYY (passada pelo controle.py)
         row_to_append = [
             new_id,
             data_dict["Data"], 
