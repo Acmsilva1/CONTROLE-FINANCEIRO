@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & BUG FIX)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & BUG FIXES)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 # --- CONFIGURAÇÕES DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
 ABA_TRANSACOES = "TRANSACOES" 
-# COLUNAS_SIMPLIFICADAS agora inclui 'Status'
+# ADIÇÃO DA COLUNA 'Status'
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor', 'Status']
 STATUS_DEFAULT = 'PAGO' 
 
@@ -105,11 +105,14 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             
+            # Garante que a coluna Status exista (para dados antigos que não a tinham)
             if 'Status' not in df_transacoes.columns:
                 df_transacoes['Status'] = STATUS_DEFAULT 
             
+            # Converte para numérico, corrigindo a coluna 'Valor'
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
+            # Preenche Status vazio (para dados antigos) com o Default
             df_transacoes['Status'] = df_transacoes['Status'].fillna(STATUS_DEFAULT)
             df_transacoes.loc[df_transacoes['Status'] == '', 'Status'] = STATUS_DEFAULT
             
@@ -124,12 +127,14 @@ def carregar_dados():
 
 
 def adicionar_transacao(spreadsheet, dados_do_form):
-    """Insere uma nova linha de transação no Sheets."""
+    """Insere uma nova linha de transação no Sheets. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
+        # Garante que a ordem segue COLUNAS_SIMPLIFICADAS, incluindo 'Status'
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         
+        # USER_ENTERED interpreta o float corretamente conforme o Locale do Sheets (BR).
         sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
         carregar_dados.clear() 
@@ -139,14 +144,16 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         return False
 
 def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
-    """Atualiza uma transação existente."""
+    """Atualiza uma transação existente. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
         
+        # Garante que a ordem segue COLUNAS_SIMPLIFICADAS, incluindo 'Status'
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
+        # USER_ENTERED
         sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
         st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
         carregar_dados.clear()
@@ -177,7 +184,7 @@ st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
 st.title("💸 **Controle Financeiro**")
 
-# Inicialização do Estado
+# Inicialização do Estado (PARA PRESERVAR O FILTRO DE MÊS NO REFRESH)
 if 'filtro_mes' not in st.session_state:
     mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
     st.session_state.filtro_mes = mes_atual_init
@@ -199,6 +206,7 @@ df_transacoes = carregar_dados()
 st.header("📥 Registrar Nova Transação")
 
 with st.form("form_transacao", clear_on_submit=True):
+    # Três colunas primárias: Mês, Categoria, Status
     col_c1, col_c2, col_c3 = st.columns([1, 1, 1]) 
     
     # MÊS DE REFERÊNCIA
@@ -211,14 +219,14 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # Status sempre visível
+    # NOVO: Status sempre visível
     status_select = col_c3.selectbox(
         "Status (PAGO / PENDENTE)",
         options=['PAGO', 'PENDENTE'],
         key="status_c"
     )
     
-    # ENTRADAS: Reais/Centavos
+    # ENTRADAS: Reais/Centavos - AGORA EM DUAS COLUNAS ABAIXO
     col_v1, col_v2 = st.columns([1.5, 0.5])
 
     reais_input = col_v1.number_input(
@@ -246,9 +254,11 @@ with st.form("form_transacao", clear_on_submit=True):
     
     if submitted:
         
+        # Trata o valor None como 0 para o cálculo
         reais_final = reais_input if reais_input is not None else 0
         centavos_final = centavos_input if centavos_input is not None else 0
         
+        # Reconstrução do valor float (A fonte da verdade)
         valor = reais_final + (centavos_final / 100)
         
         if descricao and valor > 0:
@@ -257,8 +267,8 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Mês": mes_referencia_c,
                 "Descricao": descricao, 
                 "Categoria": categoria, 
-                "Valor": valor, 
-                "Status": status_select
+                "Valor": valor, # Enviando o float (ex: 11.56)
+                "Status": status_select # NOVO CAMPO
             }
             adicionar_transacao(spreadsheet, data_to_save) 
             t.sleep(1) 
@@ -294,31 +304,41 @@ else:
     
     if not df_filtrado.empty and 'Valor' in df_filtrado.columns:
         
+        # 1. Totais Brutos (PAGO + PENDENTE)
         total_receita_bruta = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
         total_despesa_bruta = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
         
-        total_receita_realizada = df_filtrado[
+        # 2. Totais Realizados (Apenas PAGO)
+        total_receita_paga = df_filtrado[
             (df_filtrado['Categoria'] == 'Receita') & 
             (df_filtrado['Status'] == 'PAGO')
         ]['Valor'].sum()
-        
-        total_despesa_realizada = df_filtrado[
+
+        total_despesa_paga = df_filtrado[
             (df_filtrado['Categoria'] == 'Despesa') & 
             (df_filtrado['Status'] == 'PAGO')
         ]['Valor'].sum()
-
-        margem_liquida = total_receita_realizada - total_despesa_realizada
         
-        margem_delta_color = "inverse" if margem_liquida < 0 else "normal"
+        # 3. Margem Líquida Real (Receitas PAGAS - Despesas PAGAS) - CORREÇÃO MATEMÁTICA
+        margem_liquida_real = total_receita_paga - total_despesa_paga
+        
+        margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal"
 
         col1, col2, col3, col4 = st.columns(4)
         
-        col1.metric("Total Receitas (Brutas)", format_currency(total_receita_bruta))
+        # CARD 1: Receitas Brutas (Total a receber)
+        col1.metric("Total Receitas (A Pagar + Pagas)", format_currency(total_receita_bruta))
+        
+        # CARD 2: Despesas Brutas (Total a pagar + Pagas) - Novo Card
         col2.metric("Total Despesas (Brutas)", format_currency(total_despesa_bruta))
-        col3.metric("Líquido (RECEITAS PAGAS)", format_currency(total_receita_realizada))
-        col4.metric("Valor Líquido (Realizado)", 
-                    format_currency(margem_liquida), 
-                    delta=f"{'NEGATIVO' if margem_liquida < 0 else 'POSITIVO'}", 
+
+        # CARD 3: Receitas Pagas (O que realmente entrou)
+        col3.metric("Total Receitas (PAGAS)", format_currency(total_receita_paga))
+        
+        # CARD 4: Valor Líquido Real (Fluxo de Caixa)
+        col4.metric("Valor Líquido (FLUXO REAL)", 
+                    format_currency(margem_liquida_real), 
+                    delta=f"{'PREJUÍZO' if margem_liquida_real < 0 else 'LUCRO'}", 
                     delta_color=margem_delta_color)
 
         st.markdown("---")
@@ -333,6 +353,7 @@ else:
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
         df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
         
+        # Colunas de exibição agora são as mesmas (Descricao, Status, Valor)
         DISPLAY_COLUMNS = ['Descricao', 'Status', 'Valor_Formatado']
 
         col_rec, col_des = st.columns(2)
@@ -383,8 +404,7 @@ else:
                 options=transacoes_atuais,
                 index=0 if transacoes_atuais else None,
                 format_func=formatar_selecao_transacao,
-                # Chave fixa aqui é OK, pois esta selectbox CONTROLA o estado da transação
-                key='sel_upd_del_c' 
+                key='sel_upd_del_c'
             )
         
             if transacao_selecionada_id:
@@ -401,8 +421,7 @@ else:
                     with col_u:
                         st.markdown("##### Atualizar Transação Selecionada")
                         
-                        # >>> APLICANDO O FIX: O ID da Transação é anexado ao Form Key para forçar o re-render
-                        # O ID é único, então quando o ID muda, o Streamlit vê um "novo formulário"
+                        # FIX 1: Chave dinâmica para o formulário de edição (Corrige o bug de persistência)
                         with st.form(f"form_update_transacao_c_{transacao_selecionada_id}"): 
                             
                             categoria_existente = transacao_dados['Categoria']
@@ -416,6 +435,7 @@ else:
                                 reais_existentes = None
                                 centavos_existentes = None
                             
+                            # 3 colunas para os campos de topo: Mês, Categoria, Status
                             col_upd_1, col_upd_2, col_upd_3 = st.columns(3) 
                             
                             try:
@@ -427,7 +447,7 @@ else:
                                 "Mês", 
                                 list(MESES_PT.values()), 
                                 index=mes_idx, 
-                                # FIX APLICADO AQUI
+                                # FIX 2: Chave dinâmica
                                 key=f'ut_mes_c_{transacao_selecionada_id}'
                             )
 
@@ -440,13 +460,13 @@ else:
                                 "Tipo de Transação", 
                                 ["Receita", "Despesa"], 
                                 index=cat_index, 
-                                # FIX APLICADO AQUI
+                                # FIX 3: Chave dinâmica
                                 key=f'ut_tipo_c_{transacao_selecionada_id}'
                             )
                             
+                            # NOVO: Status na Edição
                             novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
                             try:
-                                # O Streamlit prefere PAGO como index 0, PENDENTE como index 1
                                 status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
                             except ValueError:
                                 status_idx = 0 
@@ -455,7 +475,7 @@ else:
                                 "Status", 
                                 ['PAGO', 'PENDENTE'], 
                                 index=status_idx, 
-                                # FIX APLICADO AQUI
+                                # FIX 4: Chave dinâmica
                                 key=f'ut_status_c_{transacao_selecionada_id}'
                             )
                             
@@ -468,7 +488,7 @@ else:
                                 value=reais_existentes, 
                                 step=1, 
                                 format="%d", 
-                                # FIX APLICADO AQUI
+                                # FIX 5: Chave dinâmica
                                 key=f"ut_reais_c_{transacao_selecionada_id}"
                             )
 
@@ -479,14 +499,14 @@ else:
                                 value=centavos_existentes, 
                                 step=1, 
                                 format="%d", 
-                                # FIX APLICADO AQUI
+                                # FIX 6: Chave dinâmica
                                 key=f"ut_centavos_c_{transacao_selecionada_id}"
                             )
                             
                             novo_descricao = st.text_input(
                                 "Descrição", 
                                 value=transacao_dados['Descricao'], 
-                                # FIX APLICADO AQUI
+                                # FIX 7: Chave dinâmica
                                 key=f'ut_desc_c_{transacao_selecionada_id}'
                             )
                             
@@ -497,6 +517,7 @@ else:
                                 novo_reais_final = novo_reais_input if novo_reais_input is not None else 0
                                 novo_centavos_final = novo_centavos_input if novo_centavos_input is not None else 0
                                 
+                                # Reconstrução do novo valor float
                                 novo_valor = novo_reais_final + (novo_centavos_final / 100)
                                 
                                 if novo_descricao and novo_valor >= 0:
@@ -506,7 +527,7 @@ else:
                                         'Valor': novo_valor, 
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
-                                        'Status': novo_status
+                                        'Status': novo_status # NOVO CAMPO
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
                                     t.sleep(1)
@@ -515,11 +536,11 @@ else:
 
                     with col_d:
                         st.markdown("##### Excluir")
+                        # NOVO: Mostrar o status na mensagem de exclusão
                         status_info_del = f" (Status: {transacao_dados.get('Status', 'N/A')})"
                         st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])}){status_info_del}")
                         
-                        # Chave fixa para o botão é OK, pois ele apenas dispara uma ação.
-                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'): 
+                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
                             deletar_transacao(spreadsheet, transacao_selecionada_id)
                             t.sleep(1)
     else:
