@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & STATUS GLOBAL)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & BUG FIX)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -13,7 +13,6 @@ SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ"
 ABA_TRANSACOES = "TRANSACOES" 
 # COLUNAS_SIMPLIFICADAS agora inclui 'Status'
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor', 'Status']
-# STATUS_DEFAULT não é mais usado para Despesas, mas mantido para fallback
 STATUS_DEFAULT = 'PAGO' 
 
 # Lista de meses em português para uso na UI e como chave de ordenação
@@ -107,13 +106,10 @@ def carregar_dados():
         if not df_transacoes.empty:
             
             if 'Status' not in df_transacoes.columns:
-                df_transacoes['Status'] = STATUS_DEFAULT # Cria e preenche se a coluna não existir
+                df_transacoes['Status'] = STATUS_DEFAULT 
             
-            # Converte para numérico, corrigindo a coluna 'Valor'
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
-            # Preenche Status vazio (para dados antigos) com o Default, ou se for Despesa (se fosse condicional)
-            # Agora preenchemos vazios com o Default PAGO para consistência
             df_transacoes['Status'] = df_transacoes['Status'].fillna(STATUS_DEFAULT)
             df_transacoes.loc[df_transacoes['Status'] == '', 'Status'] = STATUS_DEFAULT
             
@@ -132,7 +128,6 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # Garante que a ordem segue COLUNAS_SIMPLIFICADAS
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         
         sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
@@ -150,7 +145,6 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
         
-        # Garantir que a ordem segue COLUNAS_SIMPLIFICADAS
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
         sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
@@ -217,7 +211,7 @@ with st.form("form_transacao", clear_on_submit=True):
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # >>> MUDANÇA CRÍTICA 1: Status sempre visível
+    # Status sempre visível
     status_select = col_c3.selectbox(
         "Status (PAGO / PENDENTE)",
         options=['PAGO', 'PENDENTE'],
@@ -264,7 +258,7 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Descricao": descricao, 
                 "Categoria": categoria, 
                 "Valor": valor, 
-                "Status": status_select # Status do formulário
+                "Status": status_select
             }
             adicionar_transacao(spreadsheet, data_to_save) 
             t.sleep(1) 
@@ -300,10 +294,7 @@ else:
     
     if not df_filtrado.empty and 'Valor' in df_filtrado.columns:
         
-        # Filtrando Receitas PAGAS e Despesas PAGAS para o cálculo líquido
         total_receita_bruta = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
-        
-        # Despesas podem ser PENDENTES AGORA
         total_despesa_bruta = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
         
         total_receita_realizada = df_filtrado[
@@ -311,7 +302,6 @@ else:
             (df_filtrado['Status'] == 'PAGO')
         ]['Valor'].sum()
         
-        # Agora Despesa PAGA (o que já saiu do seu bolso)
         total_despesa_realizada = df_filtrado[
             (df_filtrado['Categoria'] == 'Despesa') & 
             (df_filtrado['Status'] == 'PAGO')
@@ -343,7 +333,6 @@ else:
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
         df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
         
-        # Colunas de exibição agora são as mesmas (Descricao, Status, Valor)
         DISPLAY_COLUMNS = ['Descricao', 'Status', 'Valor_Formatado']
 
         col_rec, col_des = st.columns(2)
@@ -384,7 +373,6 @@ else:
                 try:
                     df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
                     valor_formatado = format_currency(df_linha['Valor'])
-                    # Inclui o status na exibição de seleção para todas
                     status_info = f" | Status: {df_linha.get('Status', STATUS_DEFAULT)}" 
                     return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado}{status_info})"
                 except:
@@ -395,7 +383,8 @@ else:
                 options=transacoes_atuais,
                 index=0 if transacoes_atuais else None,
                 format_func=formatar_selecao_transacao,
-                key='sel_upd_del_c'
+                # Chave fixa aqui é OK, pois esta selectbox CONTROLA o estado da transação
+                key='sel_upd_del_c' 
             )
         
             if transacao_selecionada_id:
@@ -412,7 +401,9 @@ else:
                     with col_u:
                         st.markdown("##### Atualizar Transação Selecionada")
                         
-                        with st.form("form_update_transacao_c"):
+                        # >>> APLICANDO O FIX: O ID da Transação é anexado ao Form Key para forçar o re-render
+                        # O ID é único, então quando o ID muda, o Streamlit vê um "novo formulário"
+                        with st.form(f"form_update_transacao_c_{transacao_selecionada_id}"): 
                             
                             categoria_existente = transacao_dados['Categoria']
                             mes_existente = transacao_dados['Mês']
@@ -436,7 +427,8 @@ else:
                                 "Mês", 
                                 list(MESES_PT.values()), 
                                 index=mes_idx, 
-                                key='ut_mes_c'
+                                # FIX APLICADO AQUI
+                                key=f'ut_mes_c_{transacao_selecionada_id}'
                             )
 
                             try:
@@ -444,11 +436,17 @@ else:
                             except ValueError:
                                 cat_index = 0
                                 
-                            novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
+                            novo_categoria = col_upd_2.selectbox(
+                                "Tipo de Transação", 
+                                ["Receita", "Despesa"], 
+                                index=cat_index, 
+                                # FIX APLICADO AQUI
+                                key=f'ut_tipo_c_{transacao_selecionada_id}'
+                            )
                             
-                            # >>> MUDANÇA CRÍTICA 2: Status na Edição (Sempre visível)
                             novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
                             try:
+                                # O Streamlit prefere PAGO como index 0, PENDENTE como index 1
                                 status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
                             except ValueError:
                                 status_idx = 0 
@@ -457,7 +455,8 @@ else:
                                 "Status", 
                                 ['PAGO', 'PENDENTE'], 
                                 index=status_idx, 
-                                key='ut_status_c'
+                                # FIX APLICADO AQUI
+                                key=f'ut_status_c_{transacao_selecionada_id}'
                             )
                             
                             # CAMPOS DE EDIÇÃO
@@ -469,7 +468,8 @@ else:
                                 value=reais_existentes, 
                                 step=1, 
                                 format="%d", 
-                                key="ut_reais_c"
+                                # FIX APLICADO AQUI
+                                key=f"ut_reais_c_{transacao_selecionada_id}"
                             )
 
                             novo_centavos_input = col_upd_v2.number_input(
@@ -479,10 +479,16 @@ else:
                                 value=centavos_existentes, 
                                 step=1, 
                                 format="%d", 
-                                key="ut_centavos_c"
+                                # FIX APLICADO AQUI
+                                key=f"ut_centavos_c_{transacao_selecionada_id}"
                             )
                             
-                            novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
+                            novo_descricao = st.text_input(
+                                "Descrição", 
+                                value=transacao_dados['Descricao'], 
+                                # FIX APLICADO AQUI
+                                key=f'ut_desc_c_{transacao_selecionada_id}'
+                            )
                             
                             update_button = st.form_submit_button("Salvar Atualizações (Update)")
 
@@ -512,7 +518,8 @@ else:
                         status_info_del = f" (Status: {transacao_dados.get('Status', 'N/A')})"
                         st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])}){status_info_del}")
                         
-                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
+                        # Chave fixa para o botão é OK, pois ele apenas dispara uma ação.
+                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'): 
                             deletar_transacao(spreadsheet, transacao_selecionada_id)
                             t.sleep(1)
     else:
