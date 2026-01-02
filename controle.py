@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & BUG FIXES)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & SEPARAÇÃO DE FORMS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 # --- CONFIGURAÇÕES DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
 ABA_TRANSACOES = "TRANSACOES" 
-# ADIÇÃO DA COLUNA 'Status'
+# COLUNAS_SIMPLIFICADAS deve conter 'Status' para leitura/escrita no Sheets
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor', 'Status']
 STATUS_DEFAULT = 'PAGO' 
 
@@ -105,14 +105,11 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             
-            # Garante que a coluna Status exista (para dados antigos que não a tinham)
             if 'Status' not in df_transacoes.columns:
                 df_transacoes['Status'] = STATUS_DEFAULT 
             
-            # Converte para numérico, corrigindo a coluna 'Valor'
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
-            # Preenche Status vazio (para dados antigos) com o Default
             df_transacoes['Status'] = df_transacoes['Status'].fillna(STATUS_DEFAULT)
             df_transacoes.loc[df_transacoes['Status'] == '', 'Status'] = STATUS_DEFAULT
             
@@ -134,9 +131,9 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         # Garante que a ordem segue COLUNAS_SIMPLIFICADAS, incluindo 'Status'
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         
-        # USER_ENTERED interpreta o float corretamente conforme o Locale do Sheets (BR).
+        # USER_ENTERED
         sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
-        st.success("🎉 Transação criada com sucesso! Atualizando dados...")
+        st.success(f"🎉 {dados_do_form['Categoria']} criada com sucesso! Atualizando dados...")
         carregar_dados.clear() 
         return True
     except Exception as e:
@@ -184,7 +181,7 @@ st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
 st.title("💸 **Controle Financeiro**")
 
-# Inicialização do Estado (PARA PRESERVAR O FILTRO DE MÊS NO REFRESH)
+# Inicialização do Estado
 if 'filtro_mes' not in st.session_state:
     mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
     st.session_state.filtro_mes = mes_atual_init
@@ -201,79 +198,136 @@ st.sidebar.info("🔄 Atualização automática a cada 20 segundos.")
 # Carregamento de Dados
 df_transacoes = carregar_dados() 
 
-# === INSERÇÃO DE DADOS (CREATE) ===
+# === INSERÇÃO DE DADOS (CREATE) - FORMS SEPARADOS ===
 
-st.header("📥 Registrar Nova Transação")
+st.header("📥 Registrar Novas Transações")
 
-with st.form("form_transacao", clear_on_submit=True):
-    # Três colunas primárias: Mês, Categoria, Status
-    col_c1, col_c2, col_c3 = st.columns([1, 1, 1]) 
-    
-    # MÊS DE REFERÊNCIA
-    mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
-    mes_referencia_c = col_c1.selectbox(
-        "Mês", 
-        options=list(MESES_PT.values()), 
-        index=list(MESES_PT.values()).index(mes_atual), 
-        key="mes_ref_c"
-    )
-    categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
-    
-    # NOVO: Status sempre visível
-    status_select = col_c3.selectbox(
-        "Status (PAGO / PENDENTE)",
-        options=['PAGO', 'PENDENTE'],
-        key="status_c"
-    )
-    
-    # ENTRADAS: Reais/Centavos - AGORA EM DUAS COLUNAS ABAIXO
-    col_v1, col_v2 = st.columns([1.5, 0.5])
+col_rec_form, col_des_form = st.columns(2)
 
-    reais_input = col_v1.number_input(
-        "Valor (R$ - Reais)", 
-        min_value=0, 
-        value=None, 
-        step=1, 
-        format="%d", 
-        key="reais_c"
-    )
-    
-    centavos_input = col_v2.number_input(
-        "Centavos", 
-        min_value=0, 
-        max_value=99, 
-        value=None, 
-        step=1, 
-        format="%d", 
-        key="centavos_c"
-    )
-    
-    descricao = st.text_input("Descrição Detalhada", key="desc_c")
-    
-    submitted = st.form_submit_button("Lançar Transação!")
-    
-    if submitted:
+# --- FORMULÁRIO DE RECEITA (Simples, sem Status) ---
+with col_rec_form:
+    st.markdown("##### 🟢 Nova Receita (Entrada Simples)")
+    with st.form("form_transacao_receita", clear_on_submit=True):
         
-        # Trata o valor None como 0 para o cálculo
-        reais_final = reais_input if reais_input is not None else 0
-        centavos_final = centavos_input if centavos_input is not None else 0
+        col_r1, col_r2 = st.columns(2)
         
-        # Reconstrução do valor float (A fonte da verdade)
-        valor = reais_final + (centavos_final / 100)
+        mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
+        mes_referencia_r = col_r1.selectbox(
+            "Mês", 
+            options=list(MESES_PT.values()), 
+            index=list(MESES_PT.values()).index(mes_atual), 
+            key="mes_ref_r"
+        )
         
-        if descricao and valor > 0:
-            data_to_save = {
-                "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
-                "Mês": mes_referencia_c,
-                "Descricao": descricao, 
-                "Categoria": categoria, 
-                "Valor": valor, # Enviando o float (ex: 11.56)
-                "Status": status_select # NOVO CAMPO
-            }
-            adicionar_transacao(spreadsheet, data_to_save) 
-            t.sleep(1) 
-        else:
-            st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios. Não complique.")
+        # VALOR
+        reais_input_r = col_r2.number_input(
+            "Valor (R$ - Reais)", 
+            min_value=0, 
+            value=None, 
+            step=1, 
+            format="%d", 
+            key="reais_r"
+        )
+        centavos_input_r = st.number_input(
+            "Centavos", 
+            min_value=0, 
+            max_value=99, 
+            value=None, 
+            step=1, 
+            format="%d", 
+            key="centavos_r"
+        )
+        
+        descricao_r = st.text_input("Descrição Detalhada", key="desc_r")
+        
+        submitted_r = st.form_submit_button("Lançar Receita!")
+        
+        if submitted_r:
+            
+            reais_final_r = reais_input_r if reais_input_r is not None else 0
+            centavos_final_r = centavos_input_r if centavos_input_r is not None else 0
+            
+            valor_r = reais_final_r + (centavos_final_r / 100)
+            
+            if descricao_r and valor_r > 0:
+                data_to_save = {
+                    "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
+                    "Mês": mes_referencia_r,
+                    "Descricao": descricao_r, 
+                    "Categoria": 'Receita', # FIXO
+                    "Valor": valor_r,
+                    "Status": STATUS_DEFAULT # FIXO como PAGO (Governança: Receita é sempre PAGO na entrada simples)
+                }
+                adicionar_transacao(spreadsheet, data_to_save) 
+                t.sleep(1) 
+            else:
+                st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Receita.")
+
+# --- FORMULÁRIO DE DESPESA (Com Status) ---
+with col_des_form:
+    st.markdown("##### 🔴 Nova Despesa (Com Status)")
+    with st.form("form_transacao_despesa", clear_on_submit=True):
+        
+        col_d1, col_d2 = st.columns(2) 
+
+        mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
+        mes_referencia_d = col_d1.selectbox(
+            "Mês", 
+            options=list(MESES_PT.values()), 
+            index=list(MESES_PT.values()).index(mes_atual), 
+            key="mes_ref_d"
+        )
+        
+        # STATUS (APENAS PARA DESPESAS)
+        status_select_d = col_d2.selectbox(
+            "Status (PAGO / PENDENTE)",
+            options=['PAGO', 'PENDENTE'],
+            key="status_d"
+        )
+
+        # VALOR
+        reais_input_d = st.number_input(
+            "Valor (R$ - Reais)", 
+            min_value=0, 
+            value=None, 
+            step=1, 
+            format="%d", 
+            key="reais_d"
+        )
+        centavos_input_d = st.number_input(
+            "Centavos", 
+            min_value=0, 
+            max_value=99, 
+            value=None, 
+            step=1, 
+            format="%d", 
+            key="centavos_d"
+        )
+        
+        descricao_d = st.text_input("Descrição Detalhada", key="desc_d")
+        
+        submitted_d = st.form_submit_button("Lançar Despesa!")
+        
+        if submitted_d:
+            
+            reais_final_d = reais_input_d if reais_input_d is not None else 0
+            centavos_final_d = centavos_input_d if centavos_input_d is not None else 0
+            
+            valor_d = reais_final_d + (centavos_final_d / 100)
+            
+            if descricao_d and valor_d > 0:
+                data_to_save = {
+                    "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
+                    "Mês": mes_referencia_d,
+                    "Descricao": descricao_d, 
+                    "Categoria": 'Despesa', # FIXO
+                    "Valor": valor_d,
+                    "Status": status_select_d # Selecionado pelo usuário
+                }
+                adicionar_transacao(spreadsheet, data_to_save) 
+                t.sleep(1) 
+            else:
+                st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Despesa.")
 
 
 st.markdown("---") 
@@ -282,7 +336,7 @@ if df_transacoes.empty:
     st.error("Sem dados válidos para análise. Adicione uma transação para começar.")
 else:
     
-    # --- FILTROS E DASHBOARD ---
+    # --- FILTROS E DASHBOARD (MATEMÁTICA CORRIGIDA) ---
     
     st.sidebar.header("🗓️ Filtro de Período")
 
@@ -319,17 +373,17 @@ else:
             (df_filtrado['Status'] == 'PAGO')
         ]['Valor'].sum()
         
-        # 3. Margem Líquida Real (Receitas PAGAS - Despesas PAGAS) - CORREÇÃO MATEMÁTICA
+        # 3. Margem Líquida Real (Receitas PAGAS - Despesas PAGAS)
         margem_liquida_real = total_receita_paga - total_despesa_paga
         
         margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal"
 
         col1, col2, col3, col4 = st.columns(4)
         
-        # CARD 1: Receitas Brutas (Total a receber)
+        # CARD 1: Receitas Brutas 
         col1.metric("Total Receitas (A Pagar + Pagas)", format_currency(total_receita_bruta))
         
-        # CARD 2: Despesas Brutas (Total a pagar + Pagas) - Novo Card
+        # CARD 2: Despesas Brutas
         col2.metric("Total Despesas (Brutas)", format_currency(total_despesa_bruta))
 
         # CARD 3: Receitas Pagas (O que realmente entrou)
@@ -343,7 +397,7 @@ else:
 
         st.markdown("---")
         
-        # === VISUALIZAÇÃO DA TABELA (READ) - DUAS TABELAS SEPARADAS ===
+        # === VISUALIZAÇÃO DA TABELA (READ) ===
 
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
@@ -353,7 +407,6 @@ else:
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
         df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
         
-        # Colunas de exibição agora são as mesmas (Descricao, Status, Valor)
         DISPLAY_COLUMNS = ['Descricao', 'Status', 'Valor_Formatado']
 
         col_rec, col_des = st.columns(2)
@@ -464,7 +517,7 @@ else:
                                 key=f'ut_tipo_c_{transacao_selecionada_id}'
                             )
                             
-                            # NOVO: Status na Edição
+                            # Status na Edição (Permite correção de Despesas e Receitas)
                             novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
                             try:
                                 status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
@@ -517,7 +570,6 @@ else:
                                 novo_reais_final = novo_reais_input if novo_reais_input is not None else 0
                                 novo_centavos_final = novo_centavos_input if novo_centavos_input is not None else 0
                                 
-                                # Reconstrução do novo valor float
                                 novo_valor = novo_reais_final + (novo_centavos_final / 100)
                                 
                                 if novo_descricao and novo_valor >= 0:
@@ -527,7 +579,7 @@ else:
                                         'Valor': novo_valor, 
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
-                                        'Status': novo_status # NOVO CAMPO
+                                        'Status': novo_status
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
                                     t.sleep(1)
@@ -536,7 +588,6 @@ else:
 
                     with col_d:
                         st.markdown("##### Excluir")
-                        # NOVO: Mostrar o status na mensagem de exclusão
                         status_info_del = f" (Status: {transacao_dados.get('Status', 'N/A')})"
                         st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])}){status_info_del}")
                         
