@@ -1,9 +1,2 @@
-# Este arquivo deve estar dentro da pasta .streamlit/ do seu projeto.
-
 [theme]
-# O Streamlit precisa deste header
 base="dark" 
-# Força um cinza escuro no fundo, ignorando a preferência do sistema/navegador
-backgroundColor="#0E1117" 
-# Cor Primária (muda o destaque dos botões, links, etc.)
-primaryColor="#FA3710"
