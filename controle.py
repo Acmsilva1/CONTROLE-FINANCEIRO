@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & SEPARAÇÃO DE FORMS)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & 5 KPIS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 # --- CONFIGURAÇÕES DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
 ABA_TRANSACOES = "TRANSACOES" 
-# COLUNAS_SIMPLIFICADAS deve conter 'Status' para leitura/escrita no Sheets
+# ADICIONANDO 'Status' à lista de colunas para garantir a ordem no Sheets
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor', 'Status']
 STATUS_DEFAULT = 'PAGO' 
 
@@ -29,14 +29,13 @@ MESES_PT = {
 def format_currency(value):
     """
     Formata um float (ex: 11.56) para string monetária BR (R$ 11,56).
-    (Usada apenas para exibição no Streamlit)
     """
     if value is None or value == 0.0:
         return "R$ 0,00"
         
     valor_str = "{:.2f}".format(value)
     
-    # 1. Separa e formata a parte inteira com separador de milhar BR (ponto)
+    # Formata a parte inteira com separador de milhar BR (ponto)
     partes = valor_str.split('.')
     reais = partes[0]
     centavos = partes[1]
@@ -48,7 +47,7 @@ def format_currency(value):
         
     reais_com_ponto = ".".join(reais_formatados)
     
-    # 2. Junta tudo com a vírgula decimal
+    # Junta tudo com a vírgula decimal
     valor_final = f"{reais_com_ponto},{centavos}"
     
     return f"R$ {valor_final}"
@@ -105,11 +104,14 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             
+            # Garante que a coluna Status exista (para dados antigos que não a tinham)
             if 'Status' not in df_transacoes.columns:
                 df_transacoes['Status'] = STATUS_DEFAULT 
             
+            # Converte para numérico, corrigindo a coluna 'Valor'
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
+            # Preenche Status vazio/NaN com o Default
             df_transacoes['Status'] = df_transacoes['Status'].fillna(STATUS_DEFAULT)
             df_transacoes.loc[df_transacoes['Status'] == '', 'Status'] = STATUS_DEFAULT
             
@@ -131,7 +133,6 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         # Garante que a ordem segue COLUNAS_SIMPLIFICADAS, incluindo 'Status'
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         
-        # USER_ENTERED
         sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
         st.success(f"🎉 {dados_do_form['Categoria']} criada com sucesso! Atualizando dados...")
         carregar_dados.clear() 
@@ -150,7 +151,6 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         # Garante que a ordem segue COLUNAS_SIMPLIFICADAS, incluindo 'Status'
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
-        # USER_ENTERED
         sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
         st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
         carregar_dados.clear()
@@ -228,6 +228,9 @@ with col_rec_form:
             format="%d", 
             key="reais_r"
         )
+        
+        descricao_r = st.text_input("Descrição Detalhada", key="desc_r")
+
         centavos_input_r = st.number_input(
             "Centavos", 
             min_value=0, 
@@ -237,8 +240,6 @@ with col_rec_form:
             format="%d", 
             key="centavos_r"
         )
-        
-        descricao_r = st.text_input("Descrição Detalhada", key="desc_r")
         
         submitted_r = st.form_submit_button("Lançar Receita!")
         
@@ -254,9 +255,9 @@ with col_rec_form:
                     "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
                     "Mês": mes_referencia_r,
                     "Descricao": descricao_r, 
-                    "Categoria": 'Receita', # FIXO
+                    "Categoria": 'Receita', 
                     "Valor": valor_r,
-                    "Status": STATUS_DEFAULT # FIXO como PAGO (Governança: Receita é sempre PAGO na entrada simples)
+                    "Status": STATUS_DEFAULT # FIXO como PAGO
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
                 t.sleep(1) 
@@ -294,6 +295,9 @@ with col_des_form:
             format="%d", 
             key="reais_d"
         )
+        
+        descricao_d = st.text_input("Descrição Detalhada", key="desc_d")
+        
         centavos_input_d = st.number_input(
             "Centavos", 
             min_value=0, 
@@ -303,8 +307,6 @@ with col_des_form:
             format="%d", 
             key="centavos_d"
         )
-        
-        descricao_d = st.text_input("Descrição Detalhada", key="desc_d")
         
         submitted_d = st.form_submit_button("Lançar Despesa!")
         
@@ -320,7 +322,7 @@ with col_des_form:
                     "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
                     "Mês": mes_referencia_d,
                     "Descricao": descricao_d, 
-                    "Categoria": 'Despesa', # FIXO
+                    "Categoria": 'Despesa', 
                     "Valor": valor_d,
                     "Status": status_select_d # Selecionado pelo usuário
                 }
@@ -336,7 +338,7 @@ if df_transacoes.empty:
     st.error("Sem dados válidos para análise. Adicione uma transação para começar.")
 else:
     
-    # --- FILTROS E DASHBOARD (MATEMÁTICA CORRIGIDA) ---
+    # --- FILTROS E DASHBOARD ---
     
     st.sidebar.header("🗓️ Filtro de Período")
 
@@ -376,21 +378,28 @@ else:
         # 3. Margem Líquida Real (Receitas PAGAS - Despesas PAGAS)
         margem_liquida_real = total_receita_paga - total_despesa_paga
         
+        # 4. NOVO KPI CRÍTICO: DESPESAS PENDENTES
+        total_despesa_pendente = total_despesa_bruta - total_despesa_paga
+        
         margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal"
 
-        col1, col2, col3, col4 = st.columns(4)
+        # ATENÇÃO: EXPANDINDO PARA 5 COLUNAS
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         # CARD 1: Receitas Brutas 
-        col1.metric("Total Receitas (A Pagar + Pagas)", format_currency(total_receita_bruta))
+        col1.metric("Receitas (Brutas)", format_currency(total_receita_bruta))
         
-        # CARD 2: Despesas Brutas
-        col2.metric("Total Despesas (Brutas)", format_currency(total_despesa_bruta))
+        # CARD 2: Receitas Pagas
+        col2.metric("Receitas (PAGAS)", format_currency(total_receita_paga))
 
-        # CARD 3: Receitas Pagas (O que realmente entrou)
-        col3.metric("Total Receitas (PAGAS)", format_currency(total_receita_paga))
+        # CARD 3: Despesas Brutas
+        col3.metric("Despesas (Brutas)", format_currency(total_despesa_bruta))
         
-        # CARD 4: Valor Líquido Real (Fluxo de Caixa)
-        col4.metric("Valor Líquido (FLUXO REAL)", 
+        # CARD 4: Despesas Pendentes (O stress futuro)
+        col4.metric("🔴 Despesas (PENDENTES)", format_currency(total_despesa_pendente), delta="A Pagar", delta_color="inverse")
+        
+        # CARD 5: Valor Líquido Real (Fluxo de Caixa)
+        col5.metric("Valor Líquido (FLUXO REAL)", 
                     format_currency(margem_liquida_real), 
                     delta=f"{'PREJUÍZO' if margem_liquida_real < 0 else 'LUCRO'}", 
                     delta_color=margem_delta_color)
@@ -474,7 +483,7 @@ else:
                     with col_u:
                         st.markdown("##### Atualizar Transação Selecionada")
                         
-                        # FIX 1: Chave dinâmica para o formulário de edição (Corrige o bug de persistência)
+                        # USANDO CHAVE DINÂMICA
                         with st.form(f"form_update_transacao_c_{transacao_selecionada_id}"): 
                             
                             categoria_existente = transacao_dados['Categoria']
@@ -500,7 +509,6 @@ else:
                                 "Mês", 
                                 list(MESES_PT.values()), 
                                 index=mes_idx, 
-                                # FIX 2: Chave dinâmica
                                 key=f'ut_mes_c_{transacao_selecionada_id}'
                             )
 
@@ -513,11 +521,10 @@ else:
                                 "Tipo de Transação", 
                                 ["Receita", "Despesa"], 
                                 index=cat_index, 
-                                # FIX 3: Chave dinâmica
                                 key=f'ut_tipo_c_{transacao_selecionada_id}'
                             )
                             
-                            # Status na Edição (Permite correção de Despesas e Receitas)
+                            # Status na Edição
                             novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
                             try:
                                 status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
@@ -528,7 +535,6 @@ else:
                                 "Status", 
                                 ['PAGO', 'PENDENTE'], 
                                 index=status_idx, 
-                                # FIX 4: Chave dinâmica
                                 key=f'ut_status_c_{transacao_selecionada_id}'
                             )
                             
@@ -541,7 +547,6 @@ else:
                                 value=reais_existentes, 
                                 step=1, 
                                 format="%d", 
-                                # FIX 5: Chave dinâmica
                                 key=f"ut_reais_c_{transacao_selecionada_id}"
                             )
 
@@ -552,14 +557,12 @@ else:
                                 value=centavos_existentes, 
                                 step=1, 
                                 format="%d", 
-                                # FIX 6: Chave dinâmica
                                 key=f"ut_centavos_c_{transacao_selecionada_id}"
                             )
                             
                             novo_descricao = st.text_input(
                                 "Descrição", 
                                 value=transacao_dados['Descricao'], 
-                                # FIX 7: Chave dinâmica
                                 key=f'ut_desc_c_{transacao_selecionada_id}'
                             )
                             
@@ -579,7 +582,7 @@ else:
                                         'Valor': novo_valor, 
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
-                                        'Status': novo_status
+                                        'Status': novo_status # Novo campo na atualização
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
                                     t.sleep(1)
@@ -588,6 +591,7 @@ else:
 
                     with col_d:
                         st.markdown("##### Excluir")
+                        # Mostrar o status na mensagem de exclusão
                         status_info_del = f" (Status: {transacao_dados.get('Status', 'N/A')})"
                         st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])}){status_info_del}")
                         
