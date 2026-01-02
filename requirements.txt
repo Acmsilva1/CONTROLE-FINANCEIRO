@@ -3,3 +3,5 @@ streamlit
 pandas
 gspread
 streamlit-autorefresh
+scikit-learn  # ISSO estava faltando!
+numpy         # Boa prática de governança, pois você usa np.arange
