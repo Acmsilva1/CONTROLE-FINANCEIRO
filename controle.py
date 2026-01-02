@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & STATUS)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & STATUS GLOBAL)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -11,9 +11,9 @@ from google.oauth2 import service_account
 # --- CONFIGURAÇÕES DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
 ABA_TRANSACOES = "TRANSACOES" 
-# >>> MUDANÇA 1: Adicionar 'Status' à lista de colunas
+# COLUNAS_SIMPLIFICADAS agora inclui 'Status'
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor', 'Status']
-# STATUS_DEFAULT é a nova "fonte da verdade" quando o campo não é aplicável ou inserido
+# STATUS_DEFAULT não é mais usado para Despesas, mas mantido para fallback
 STATUS_DEFAULT = 'PAGO' 
 
 # Lista de meses em português para uso na UI e como chave de ordenação
@@ -98,8 +98,6 @@ def carregar_dados():
         return pd.DataFrame()
         
     try:
-        # LÊ O VALOR PURO (UNFORMATTED_VALUE) - FIX DE LEITURA
-        # Importante: O Sheets deve ter a nova coluna 'Status' na linha de cabeçalho
         records = spreadsheet.worksheet(ABA_TRANSACOES).get_all_records(
              value_render_option='UNFORMATTED_VALUE', 
              head=1 
@@ -108,18 +106,16 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             
-            # Garante que a coluna Status exista (para dados antigos que não a tinham)
             if 'Status' not in df_transacoes.columns:
-                df_transacoes['Status'] = '' # Cria uma coluna vazia se não existir
+                df_transacoes['Status'] = STATUS_DEFAULT # Cria e preenche se a coluna não existir
             
             # Converte para numérico, corrigindo a coluna 'Valor'
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
-            # Preenche Status vazio em Despesas com o Default para consistência na UI (opcional)
-            df_transacoes['Status'] = df_transacoes.apply(
-                lambda row: STATUS_DEFAULT if (row['Categoria'] == 'Despesa' or pd.isna(row['Status']) or row['Status'] == '') else row['Status'], 
-                axis=1
-            )
+            # Preenche Status vazio (para dados antigos) com o Default, ou se for Despesa (se fosse condicional)
+            # Agora preenchemos vazios com o Default PAGO para consistência
+            df_transacoes['Status'] = df_transacoes['Status'].fillna(STATUS_DEFAULT)
+            df_transacoes.loc[df_transacoes['Status'] == '', 'Status'] = STATUS_DEFAULT
             
             df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
             df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
@@ -132,17 +128,14 @@ def carregar_dados():
 
 
 def adicionar_transacao(spreadsheet, dados_do_form):
-    """Insere uma nova linha de transação no Sheets. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
+    """Insere uma nova linha de transação no Sheets."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # >>> MUDANÇA 2: Assegurar que a nova linha inclua o Status
-        # Garantir que a ordem segue COLUNAS_SIMPLIFICADAS, inclusive o novo 'Status'
-        # O valor do Status virá do formulário, ou será STATUS_DEFAULT (para despesas)
+        # Garante que a ordem segue COLUNAS_SIMPLIFICADAS
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         
-        # USER_ENTERED interpreta o float corretamente conforme o Locale do Sheets (BR).
-        sheet.append_row(nova_linha, value_input_option='USER_ENTERED') # FIX DE ESCRITA
+        sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
         st.success("🎉 Transação criada com sucesso! Atualizando dados...")
         carregar_dados.clear() 
         return True
@@ -151,7 +144,7 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         return False
 
 def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
-    """Atualiza uma transação existente. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
+    """Atualiza uma transação existente."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
@@ -160,8 +153,7 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         # Garantir que a ordem segue COLUNAS_SIMPLIFICADAS
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
-        # A célula inicial da linha é A{linha_index}, e a última é a da coluna 'Status'
-        sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED') # FIX DE ESCRITA
+        sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
         st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
         carregar_dados.clear()
         return True
@@ -191,7 +183,7 @@ st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
 
 st.title("💸 **Controle Financeiro**")
 
-# Inicialização do Estado (PARA PRESERVAR O FILTRO DE MÊS NO REFRESH)
+# Inicialização do Estado
 if 'filtro_mes' not in st.session_state:
     mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
     st.session_state.filtro_mes = mes_atual_init
@@ -215,29 +207,22 @@ st.header("📥 Registrar Nova Transação")
 with st.form("form_transacao", clear_on_submit=True):
     col_c1, col_c2, col_c3 = st.columns([1, 1, 1]) 
     
-    # MÊS DE REFERÊNCIA: SEMPRE O MÊS ATUAL DO SISTEMA
+    # MÊS DE REFERÊNCIA
     mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
     mes_referencia_c = col_c1.selectbox(
         "Mês", 
         options=list(MESES_PT.values()), 
-        index=list(MESES_PT.values()).index(mes_atual), # Força o Mês Atual
+        index=list(MESES_PT.values()).index(mes_atual), 
         key="mes_ref_c"
     )
     categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
     
-    # >>> MUDANÇA 3: Adicionar Status condicionalmente
-    status_select = STATUS_DEFAULT
-    if categoria == 'Receita':
-        status_select = col_c3.selectbox(
-            "Status da Receita (Apenas para Receitas)",
-            options=['PENDENTE', 'PAGO'],
-            key="status_c"
-        )
-    else:
-        # Garante que, para Despesa, a coluna de Status seja PAGO (ou um valor neutro)
-        # O componente é ocultado, mas precisamos do valor para o `submitted`
-        status_select = STATUS_DEFAULT
-        col_c3.markdown("Status: **Pago** (padrão para despesas)")
+    # >>> MUDANÇA CRÍTICA 1: Status sempre visível
+    status_select = col_c3.selectbox(
+        "Status (PAGO / PENDENTE)",
+        options=['PAGO', 'PENDENTE'],
+        key="status_c"
+    )
     
     # ENTRADAS: Reais/Centavos
     col_v1, col_v2 = st.columns([1.5, 0.5])
@@ -267,11 +252,9 @@ with st.form("form_transacao", clear_on_submit=True):
     
     if submitted:
         
-        # Trata o valor None como 0 para o cálculo
         reais_final = reais_input if reais_input is not None else 0
         centavos_final = centavos_input if centavos_input is not None else 0
         
-        # Reconstrução do valor float (A fonte da verdade)
         valor = reais_final + (centavos_final / 100)
         
         if descricao and valor > 0:
@@ -280,8 +263,8 @@ with st.form("form_transacao", clear_on_submit=True):
                 "Mês": mes_referencia_c,
                 "Descricao": descricao, 
                 "Categoria": categoria, 
-                "Valor": valor, # Enviando o float (ex: 11.56)
-                "Status": status_select # >>> NOVO CAMPO
+                "Valor": valor, 
+                "Status": status_select # Status do formulário
             }
             adicionar_transacao(spreadsheet, data_to_save) 
             t.sleep(1) 
@@ -317,25 +300,32 @@ else:
     
     if not df_filtrado.empty and 'Valor' in df_filtrado.columns:
         
-        # A Margem Líquida agora deve considerar apenas Receitas PAGO - Despesas
+        # Filtrando Receitas PAGAS e Despesas PAGAS para o cálculo líquido
         total_receita_bruta = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
-        total_despesa = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
         
-        # Receita Realizada (APENAS PAGO) para uma análise mais "séria"
+        # Despesas podem ser PENDENTES AGORA
+        total_despesa_bruta = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
+        
         total_receita_realizada = df_filtrado[
             (df_filtrado['Categoria'] == 'Receita') & 
             (df_filtrado['Status'] == 'PAGO')
         ]['Valor'].sum()
+        
+        # Agora Despesa PAGA (o que já saiu do seu bolso)
+        total_despesa_realizada = df_filtrado[
+            (df_filtrado['Categoria'] == 'Despesa') & 
+            (df_filtrado['Status'] == 'PAGO')
+        ]['Valor'].sum()
 
-        margem_liquida = total_receita_realizada - total_despesa
+        margem_liquida = total_receita_realizada - total_despesa_realizada
         
         margem_delta_color = "inverse" if margem_liquida < 0 else "normal"
 
         col1, col2, col3, col4 = st.columns(4)
         
-        col1.metric("Total de Receitas (Brutas)", format_currency(total_receita_bruta))
-        col2.metric("Total de Receitas (PAGAS)", format_currency(total_receita_realizada))
-        col3.metric("Total de Despesas", format_currency(total_despesa))
+        col1.metric("Total Receitas (Brutas)", format_currency(total_receita_bruta))
+        col2.metric("Total Despesas (Brutas)", format_currency(total_despesa_bruta))
+        col3.metric("Líquido (RECEITAS PAGAS)", format_currency(total_receita_realizada))
         col4.metric("Valor Líquido (Realizado)", 
                     format_currency(margem_liquida), 
                     delta=f"{'NEGATIVO' if margem_liquida < 0 else 'POSITIVO'}", 
@@ -353,10 +343,8 @@ else:
         df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
         df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
         
-        # >>> MUDANÇA 4: Adicionar Status apenas nas receitas
-        DISPLAY_COLUMNS_RECEITA = ['Descricao', 'Status', 'Valor_Formatado']
-        DISPLAY_COLUMNS_DESPESA = ['Descricao', 'Valor_Formatado']
-
+        # Colunas de exibição agora são as mesmas (Descricao, Status, Valor)
+        DISPLAY_COLUMNS = ['Descricao', 'Status', 'Valor_Formatado']
 
         col_rec, col_des = st.columns(2)
 
@@ -366,7 +354,7 @@ else:
                 st.info("Nenhuma Receita registrada para este mês.")
             else:
                 st.dataframe(
-                    df_receitas[DISPLAY_COLUMNS_RECEITA].rename(columns={'Valor_Formatado': 'Valor'}),
+                    df_receitas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
                     use_container_width=True, 
                     hide_index=True
                 )
@@ -377,7 +365,7 @@ else:
                 st.info("Nenhuma Despesa registrada para este mês.")
             else:
                 st.dataframe(
-                    df_despesas[DISPLAY_COLUMNS_DESPESA].rename(columns={'Valor_Formatado': 'Valor'}),
+                    df_despesas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
                     use_container_width=True, 
                     hide_index=True
                 )
@@ -396,8 +384,8 @@ else:
                 try:
                     df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
                     valor_formatado = format_currency(df_linha['Valor'])
-                    # Inclui o status na exibição de seleção para receitas
-                    status_info = f" | Status: {df_linha['Status']}" if df_linha['Categoria'] == 'Receita' else ""
+                    # Inclui o status na exibição de seleção para todas
+                    status_info = f" | Status: {df_linha.get('Status', STATUS_DEFAULT)}" 
                     return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado}{status_info})"
                 except:
                     return f"ID Inconsistente ({id_val[:4]}...)"
@@ -437,7 +425,7 @@ else:
                                 reais_existentes = None
                                 centavos_existentes = None
                             
-                            col_upd_1, col_upd_2, col_upd_3 = st.columns(3) # Três colunas para os campos de topo
+                            col_upd_1, col_upd_2, col_upd_3 = st.columns(3) 
                             
                             try:
                                 mes_idx = list(MESES_PT.values()).index(mes_existente)
@@ -458,25 +446,20 @@ else:
                                 
                             novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
                             
-                            # >>> MUDANÇA 5: Campo Status na Edição (Condicional)
-                            novo_status = transacao_dados.get('Status', STATUS_DEFAULT) # Pega o valor existente
+                            # >>> MUDANÇA CRÍTICA 2: Status na Edição (Sempre visível)
+                            novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
+                            try:
+                                status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
+                            except ValueError:
+                                status_idx = 0 
 
-                            if novo_categoria == 'Receita':
-                                try:
-                                    status_idx = ['PENDENTE', 'PAGO'].index(novo_status)
-                                except ValueError:
-                                    status_idx = 0 
-
-                                novo_status = col_upd_3.selectbox(
-                                    "Status", 
-                                    ['PENDENTE', 'PAGO'], 
-                                    index=status_idx, 
-                                    key='ut_status_c'
-                                )
-                            else:
-                                novo_status = STATUS_DEFAULT
-                                col_upd_3.markdown("Status: **Pago** (padrão para despesas)")
-
+                            novo_status = col_upd_3.selectbox(
+                                "Status", 
+                                ['PAGO', 'PENDENTE'], 
+                                index=status_idx, 
+                                key='ut_status_c'
+                            )
+                            
                             # CAMPOS DE EDIÇÃO
                             col_upd_v1, col_upd_v2 = st.columns([2, 1])
                             
@@ -517,7 +500,7 @@ else:
                                         'Valor': novo_valor, 
                                         'Categoria': novo_categoria,
                                         'Mês': novo_mes,
-                                        'Status': novo_status # >>> NOVO CAMPO
+                                        'Status': novo_status
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
                                     t.sleep(1)
@@ -526,7 +509,7 @@ else:
 
                     with col_d:
                         st.markdown("##### Excluir")
-                        status_info_del = f" (Status: {transacao_dados.get('Status', 'N/A')})" if transacao_dados['Categoria'] == 'Receita' else ""
+                        status_info_del = f" (Status: {transacao_dados.get('Status', 'N/A')})"
                         st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])}){status_info_del}")
                         
                         if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
