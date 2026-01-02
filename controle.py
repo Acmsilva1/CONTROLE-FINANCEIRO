@@ -1,485 +1,371 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA)
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-import uuid
-import time as t 
-from streamlit_autorefresh import st_autorefresh 
 import gspread
-from google.oauth2 import service_account
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import os
+import json 
+from gspread.exceptions import WorksheetNotFound, APIError 
 
-# --- CONFIGURAÇÕES DA PLANILHA ---
-SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
-ABA_TRANSACOES = "TRANSACOES" 
-COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor']
+# --- Adicionando as bibliotecas de Machine Learning ---
+from sklearn.linear_model import LinearRegression 
+from sklearn.metrics import mean_absolute_error
 
-# Lista de meses em português para uso na UI e como chave de ordenação
-MESES_PT = {
-    1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr', 
-    5: 'Mai', 6: 'Jun', 7: 'Jul', 8: 'Ago', 
-    9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
-}
+# --- CONFIGURAÇÕES DE DADOS (UNIFICADO E CORRIGIDO) ---
+# ID ÚNICO para a planilha "HISTORICO DE VENDAS E GASTOS"
+ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
 
-# =================================================================
-# === FUNÇÕES DE FORMATAÇÃO E PARSING ===
-# =================================================================
+ABA_VENDAS = "VENDAS"
+ABA_GASTOS = "GASTOS" 
 
-def format_currency(value):
+# Colunas (CORRIGIDAS conforme sua planilha)
+COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
+COLUNA_COMPRADOR = 'DADOS DO COMPRADOR' 
+COLUNA_ITEM_VENDIDO = 'SABORES'       
+
+COLUNA_VALOR_GASTO = 'VALOR' 
+COLUNA_DATA = 'DATA E HORA' 
+COLUNA_STATUS_GASTO = 'Status' # [CORRIGIDO] Coluna para o status do Gasto, conforme a planilha
+
+OUTPUT_HTML = "dashboard_ml_insights.html"
+URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insights.html" 
+# --------------------------------------------------------------------------------
+
+def format_brl(value):
+    """Função helper para formatar valores em R$"""
+    value = float(value)
+    return f"R$ {value:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
+
+def autenticar_gspread():
+    SHEET_CREDENTIALS_JSON = os.environ.get('GCP_SA_CREDENTIALS')
+    if not SHEET_CREDENTIALS_JSON:
+        raise ConnectionError("Variável de ambiente 'GCP_SA_CREDENTIALS' não encontrada. O fluxo vai falhar!")
+    credentials_dict = json.loads(SHEET_CREDENTIALS_JSON) 
+    return gspread.service_account_from_dict(credentials_dict)
+
+def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
     """
-    Formata um float (ex: 11.56) para string monetária BR (R$ 11,56).
-    (Usada apenas para exibição no Streamlit)
+    Carrega os dados da aba. Retorna o DF Bruto para VENDAS (para métricas de negócio) 
+    ou o DF Agrupado Mensal para GASTOS (apenas os pagos).
     """
-    if value is None or value == 0.0:
-        return "R$ 0,00"
-        
-    valor_str = "{:.2f}".format(value)
-    
-    # 1. Separa e formata a parte inteira com separador de milhar BR (ponto)
-    partes = valor_str.split('.')
-    reais = partes[0]
-    centavos = partes[1]
-    
-    reais_formatados = []
-    for i in range(len(reais), 0, -3):
-        start = max(0, i - 3)
-        reais_formatados.insert(0, reais[start:i])
-        
-    reais_com_ponto = ".".join(reais_formatados)
-    
-    # 2. Junta tudo com a vírgula decimal
-    valor_final = f"{reais_com_ponto},{centavos}"
-    
-    return f"R$ {valor_final}"
-
-# =================================================================
-# === FUNÇÕES DE CONEXÃO E GOVERNANÇA ===
-# =================================================================
-
-def get_service_account_credentials():
-    """Carrega as credenciais da conta de serviço."""
+    print(f"DEBUG: Carregando dados: ID={sheet_id}, Aba={aba_nome}")
     try:
-        creds_dict = st.secrets["gcp_service_account"] 
-        scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-        creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        return creds
-    except Exception:
-        st.error("Erro: Credenciais não encontradas ou inválidas.")
-        return None
-
-@st.cache_resource(ttl=3600) 
-def conectar_sheets_resource():
-    """Conecta ao Google Sheets."""
-    MAX_RETRIES = 3
-    creds = get_service_account_credentials()
-    if not creds: return None
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            gc = gspread.authorize(creds)
-            spreadsheet = gc.open_by_key(SHEET_ID)
-            st.sidebar.success("✅ Conexão com Google Sheets estabelecida.")
-            return spreadsheet
-        except Exception as e:
-            if attempt < MAX_RETRIES - 1:
-                t.sleep(2 ** attempt) 
+        planilha = gc.open_by_key(sheet_id).worksheet(aba_nome)
+        dados = planilha.get_all_values()
+        
+        if not dados or len(dados) < 2:
+             print(f"Alerta: Planilha {aba_nome} está vazia.")
+             return pd.DataFrame()
+             
+        df = pd.DataFrame(dados[1:], columns=dados[0])
+        
+        # Limpeza do Valor
+        df['temp_valor'] = df[coluna_valor].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=True).str.strip()
+        df[f'{prefixo}_Float'] = pd.to_numeric(df['temp_valor'], errors='coerce')
+        
+        # Limpeza da Data
+        df['Data_Datetime'] = pd.to_datetime(df[COLUNA_DATA], errors='coerce', dayfirst=True)
+        
+        df_validos = df.dropna(subset=['Data_Datetime', f'{prefixo}_Float']).copy()
+        
+        if aba_nome == ABA_VENDAS:
+             return df_validos
+        
+        # Lógica para GASTOS (Filtrar apenas 'PAGO')
+        if aba_nome == ABA_GASTOS:
+            if COLUNA_STATUS_GASTO not in df_validos.columns:
+                print(f"AVISO CRÍTICO: Coluna '{COLUNA_STATUS_GASTO}' não encontrada. TODOS OS GASTOS SERÃO CONSIDERADOS PAGOS!")
+                df_gastos_pago = df_validos 
             else:
-                st.error(f"🚨 Erro fatal ao conectar após {MAX_RETRIES} tentativas. Erro: {e}")
-                return None
-    return None
-
-@st.cache_data(ttl=10) 
-def carregar_dados(): 
-    """Lê a aba TRANSACOES forçando a leitura do valor puro (UNFORMATTED_VALUE)."""
-    spreadsheet = conectar_sheets_resource() 
-    if spreadsheet is None:
-        return pd.DataFrame()
+                # Filtrar gastos onde o status é 'PAGO' (case-insensitive)
+                df_gastos_pago = df_validos[
+                    df_validos[COLUNA_STATUS_GASTO].astype(str).str.upper().str.strip() == 'PAGO'
+                ].copy()
+                print(f"DEBUG: {len(df_validos) - len(df_gastos_pago)} gastos 'PENDENTES' foram excluídos da análise de lucro.")
         
-    try:
-        # LÊ O VALOR PURO (UNFORMATTED_VALUE) - FIX DE LEITURA
-        records = spreadsheet.worksheet(ABA_TRANSACOES).get_all_records(
-             value_render_option='UNFORMATTED_VALUE', 
-             head=1 
-        )
-        df_transacoes = pd.DataFrame(records)
-
-        if not df_transacoes.empty:
+            # Agrupamento Mensal APENAS para Gastos PAGOS
+            df_gastos_pago['Mes_Ano'] = df_gastos_pago['Data_Datetime'].dt.to_period('M')
+            df_mensal = df_gastos_pago.groupby('Mes_Ano')[f'{prefixo}_Float'].sum().reset_index()
+            df_mensal.columns = ['Mes_Ano', f'Total_{prefixo}']
             
-            # Converte para numérico, corrigindo a coluna 'Valor'
-            df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
+            return df_mensal.set_index('Mes_Ano')
             
-            df_transacoes = df_transacoes.dropna(subset=['Mês', 'Valor']).copy() 
-            df_transacoes['Mes_Num'] = df_transacoes['Mês'].map({v: k for k, v in MESES_PT.items()})
-
-        return df_transacoes
-        
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
+        print(f"ERRO ao carregar {aba_nome}: {e}")
         return pd.DataFrame()
 
-
-def adicionar_transacao(spreadsheet, dados_do_form):
-    """Insere uma nova linha de transação no Sheets. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
-    try:
-        sheet = spreadsheet.worksheet(ABA_TRANSACOES)
-        
-        nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
-        
-        # USER_ENTERED interpreta o float corretamente conforme o Locale do Sheets (BR).
-        sheet.append_row(nova_linha, value_input_option='USER_ENTERED') # FIX DE ESCRITA
-        st.success("🎉 Transação criada com sucesso! Atualizando dados...")
-        carregar_dados.clear() 
-        return True
-    except Exception as e:
-        st.error(f"Erro ao adicionar transação: {e}")
-        return False
-
-def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
-    """Atualiza uma transação existente. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
-    try:
-        sheet = spreadsheet.worksheet(ABA_TRANSACOES)
-        cell = sheet.find(id_transacao) 
-        linha_index = cell.row 
-        
-        valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
-
-        # USER_ENTERED
-        sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED') # FIX DE ESCRITA
-        st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
-        carregar_dados.clear()
-        return True
-    except Exception as e:
-        st.error(f"🚫 Erro ao atualizar a transação: {e}")
-        return False
-
-def deletar_transacao(spreadsheet, id_transacao):
-    """Remove uma transação."""
-    try:
-        sheet = spreadsheet.worksheet(ABA_TRANSACOES)
-        cell = sheet.find(id_transacao)
-        linha_index = cell.row
-        sheet.delete_rows(linha_index)
-        st.success(f"🗑️ Transação {id_transacao[:8]}... deletada. Atualizando dados...")
-        carregar_dados.clear()
-        return True
-    except Exception as e:
-        st.error(f"🚫 Erro ao deletar a transação: {e}")
-        return False
-
-# =================================================================
-# === INTERFACE STREAMLIT (UI) ===
-# =================================================================
-
-st.set_page_config(layout="wide", page_title="Controle Financeiro Básico")
-
-st.title("💸 **Controle Financeiro**")
-
-# Inicialização do Estado (PARA PRESERVAR O FILTRO DE MÊS NO REFRESH)
-if 'filtro_mes' not in st.session_state:
-    mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
-    st.session_state.filtro_mes = mes_atual_init
+def carregar_e_combinar_dados(gc):
+    df_vendas_bruto = carregar_dados_de_planilha(gc, ID_PLANILHA_UNICA, ABA_VENDAS, COLUNA_VALOR_VENDA, 'Vendas')
+    df_gastos_mensal = carregar_dados_de_planilha(gc, ID_PLANILHA_UNICA, ABA_GASTOS, COLUNA_VALOR_GASTO, 'Gastos')
     
-# Conexão
-spreadsheet = conectar_sheets_resource()
-if spreadsheet is None:
-    st.stop() 
+    if df_vendas_bruto.empty or df_gastos_mensal.empty:
+        raise ValueError("Dados insuficientes para análise de Lucro. Verifique se há dados e se os GASTOS estão marcados como 'PAGO'.")
 
-# Auto-Refresh de 20 segundos
-st_autorefresh(interval=20000, key="data_refresh_key_simple")
-st.sidebar.info("🔄 Atualização automática a cada 20 segundos.")
-
-# Carregamento de Dados
-df_transacoes = carregar_dados() 
-
-# === INSERÇÃO DE DADOS (CREATE) ===
-
-st.header("📥 Registrar Nova Transação")
-
-with st.form("form_transacao", clear_on_submit=True):
-    col_c1, col_c2, col_c3, col_c4 = st.columns([1, 1, 1.5, 0.5]) 
+    df_vendas_mensal = df_vendas_bruto.copy()
+    df_vendas_mensal['Mes_Ano'] = df_vendas_mensal['Data_Datetime'].dt.to_period('M')
+    df_vendas_mensal = df_vendas_mensal.groupby('Mes_Ano')['Vendas_Float'].sum().reset_index()
+    df_vendas_mensal.columns = ['Mes_Ano', 'Total_Vendas']
+    df_vendas_mensal = df_vendas_mensal.set_index('Mes_Ano')
     
-    # MÊS DE REFERÊNCIA: SEMPRE O MÊS ATUAL DO SISTEMA
-    mes_atual = MESES_PT.get(datetime.now().month, 'Jan')
-    mes_referencia_c = col_c1.selectbox(
-        "Mês", 
-        options=list(MESES_PT.values()), 
-        index=list(MESES_PT.values()).index(mes_atual), # Força o Mês Atual
-        key="mes_ref_c"
-    )
-    categoria = col_c2.selectbox("Tipo de Transação", options=['Receita', 'Despesa'], key="cat_c")
+    df_combinado = pd.merge(
+        df_vendas_mensal, 
+        df_gastos_mensal, 
+        left_index=True, 
+        right_index=True, 
+        how='outer' 
+    ).fillna(0) 
+
+    df_combinado['Lucro_Liquido'] = df_combinado['Total_Vendas'] - df_combinado['Total_Gastos']
     
-    # ENTRADAS: Reais/Centavos
-    reais_input = col_c3.number_input(
-        "Valor (R$ - Reais)", 
-        min_value=0, 
-        value=None, 
-        step=1, 
-        format="%d", 
-        key="reais_c"
+    df_combinado = df_combinado.sort_index().reset_index()
+    df_combinado['Mes_Index'] = np.arange(len(df_combinado))
+    
+    if len(df_combinado) < 4:
+        raise ValueError(f"Dados insuficientes para ML: Apenas {len(df_combinado)} meses consolidados. Mínimo de 4 meses é recomendado.")
+            
+    return df_combinado, df_vendas_bruto
+
+def treinar_e_prever(df_mensal):
+    X = df_mensal[['Mes_Index']] 
+    y = df_mensal['Lucro_Liquido'] 
+    
+    modelo = LinearRegression()
+    modelo.fit(X, y)
+    
+    proximo_mes_index = df_mensal['Mes_Index'].max() + 1
+    previsao_proximo_mes = modelo.predict([[proximo_mes_index]])[0]
+
+    predicoes_historicas = modelo.predict(X)
+    mae = mean_absolute_error(y, predicoes_historicas)
+
+    ultimo_lucro_real = df_mensal['Lucro_Liquido'].iloc[-1]
+    
+    return previsao_proximo_mes, mae, ultimo_lucro_real
+
+def analisar_metricas_negocio(df_vendas_bruto):
+    """Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita)."""
+    if COLUNA_COMPRADOR not in df_vendas_bruto.columns or COLUNA_ITEM_VENDIDO not in df_vendas_bruto.columns:
+        print(f"Alerta: Colunas de negócio não encontradas.")
+        return "N/A", "N/A"
+        
+    comprador_df = df_vendas_bruto.groupby(COLUNA_COMPRADOR)['Vendas_Float'].sum().reset_index()
+    if comprador_df.empty:
+        return "N/A (Dados vazios)", "N/A (Dados vazios)"
+        
+    melhor_comprador = comprador_df.sort_values(by='Vendas_Float', ascending=False).iloc[0]
+    
+    produto_df = df_vendas_bruto.groupby(COLUNA_ITEM_VENDIDO)['Vendas_Float'].sum().reset_index()
+    produto_mais_vendido = produto_df.sort_values(by='Vendas_Float', ascending=False).iloc[0]
+
+    resultado_comprador = (
+        f"{melhor_comprador[COLUNA_COMPRADOR]} ({format_brl(melhor_comprador['Vendas_Float'])})"
     )
     
-    centavos_input = col_c4.number_input(
-        "Centavos", 
-        min_value=0, 
-        max_value=99, 
-        value=None, 
-        step=1, 
-        format="%d", 
-        key="centavos_c"
-    )
-    
-    descricao = st.text_input("Descrição Detalhada", key="desc_c")
-    
-    submitted = st.form_submit_button("Lançar Transação!")
-    
-    if submitted:
-        
-        # Trata o valor None como 0 para o cálculo
-        reais_final = reais_input if reais_input is not None else 0
-        centavos_final = centavos_input if centavos_input is not None else 0
-        
-        # Reconstrução do valor float (A fonte da verdade)
-        valor = reais_final + (centavos_final / 100)
-        
-        if descricao and valor > 0:
-            data_to_save = {
-                "ID Transacao": f"TRX-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4]}",
-                "Mês": mes_referencia_c,
-                "Descricao": descricao, 
-                "Categoria": categoria, 
-                "Valor": valor # Enviando o float (ex: 11.56)
-            }
-            adicionar_transacao(spreadsheet, data_to_save) 
-            t.sleep(1) 
-        else:
-            st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios. Não complique.")
-
-
-st.markdown("---") 
-
-if df_transacoes.empty:
-    st.error("Sem dados válidos para análise. Adicione uma transação para começar.")
-else:
-    
-    # --- FILTROS E DASHBOARD ---
-    
-    st.sidebar.header("🗓️ Filtro de Período")
-
-    # MUDANÇA CRÍTICA AQUI: Removendo o parâmetro 'index' para evitar conflito com 'key'
-    todos_os_meses_pt = list(MESES_PT.values())
-
-    # O filtro agora usa apenas a chave, dependendo do st.session_state para o valor inicial
-    selected_month = st.sidebar.selectbox(
-        "Selecione o Mês:", 
-        options=todos_os_meses_pt, 
-        key='filtro_mes', # Chave que vincula o widget ao st.session_state
-        # O valor inicial é implicitamente st.session_state.filtro_mes
+    resultado_produto = (
+        f"{produto_mais_vendido[COLUNA_ITEM_VENDIDO]} ({format_brl(produto_mais_vendido['Vendas_Float'])})"
     )
 
-    if selected_month and 'Mês' in df_transacoes.columns:
-        df_filtrado = df_transacoes[df_transacoes['Mês'] == selected_month].copy()
+    return resultado_comprador, resultado_produto
+
+def gerar_tabela_auditoria(df_mensal):
+    """Gera o HTML da tabela histórica de Lucro, Vendas e Gastos."""
+    table_rows = ""
+    for index, row in df_mensal.iterrows():
+        lucro = row['Lucro_Liquido']
+        lucro_class = 'lucro-positivo-dark' if lucro >= 0 else 'lucro-negativo-dark'
+        
+        table_rows += f"""
+        <tr class="{lucro_class}">
+            <td>{row['Mes_Ano']}</td>
+            <td>{format_brl(row['Total_Vendas'])}</td>
+            <td>{format_brl(row['Total_Gastos'])}</td>
+            <td>{format_brl(lucro)}</td>
+        </tr>
+        """
+    return table_rows
+
+def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_comprador, produto_mais_vendido):
+    
+    diferenca = previsao - ultimo_valor_real
+    
+    if previsao < 0:
+        insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {format_brl(abs(previsao))} esperado. Hora de cortar o cafezinho."
+        cor = "#9c0000" 
+    elif diferenca > (ultimo_valor_real * 0.10):
+        insight = f"🚀 **Crescimento de Lucro Esperado!** Aumento de {format_brl(diferenca)}. Suas vendas estão no *hype*!"
+        cor = "#006400" 
+    elif diferenca < -(ultimo_valor_real * 0.10):
+        insight = f"⚠️ **Risco de Queda de Lucro!** Retração de {format_brl(abs(diferenca))} esperada. Analise seus custos ou chame o Batman!"
+        cor = "#b8860b" 
     else:
-        # Se for um mês novo sem dados, df_filtrado será vazio, e o dashboard mostrará R$ 0,00
-        df_filtrado = pd.DataFrame() 
-
-
-    st.header(f"📊 Dashboard Básico ({selected_month or 'Nenhum Mês Selecionado'})")
+        insight = f"➡️ **Estabilidade Esperada.** Lucro projetado próximo ao mês passado. Nem frio, nem quente."
+        cor = "#005a8d" 
     
-    if not df_filtrado.empty and 'Valor' in df_filtrado.columns:
-        
-        total_receita = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
-        total_despesa = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
-        margem_liquida = total_receita - total_despesa
-        
-        margem_delta_color = "inverse" if margem_liquida < 0 else "normal"
+    texto_box_cor = "white"
 
-        col1, col2, col3 = st.columns(3)
-        
-        col1.metric("Total de Receitas", format_currency(total_receita))
-        col2.metric("Total de Despesas", format_currency(total_despesa))
-        col3.metric("Valor Líquido Restante", 
-                    format_currency(margem_liquida), 
-                    delta=f"{'NEGATIVO' if margem_liquida < 0 else 'POSITIVO'}", 
-                    delta_color=margem_delta_color)
+    tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
+    
+    lucro_anual_html = ""
+    ultimo_ano = df_historico['Mes_Ano'].dt.year.max()
+    df_ano_atual = df_historico[df_historico['Mes_Ano'].dt.year == ultimo_ano].copy()
+    
+    df_ano_atual['Lucro_Abs'] = df_ano_atual['Lucro_Liquido'].abs()
+    max_lucro = df_ano_atual['Lucro_Abs'].max()
 
-        st.markdown("---")
-        
-        # === VISUALIZAÇÃO DA TABELA (READ) - DUAS TABELAS SEPARADAS ===
+    for index, row in df_ano_atual.iterrows():
+        lucro = row['Lucro_Liquido']
+        cor_barra = '#006400' if lucro >= 0 else '#9c0000' 
+        largura = (row['Lucro_Abs'] / max_lucro) * 100 if max_lucro > 0 else 0 
 
-        st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
-        
-        df_base_display = df_filtrado.copy()
-        df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(format_currency)
-        
-        df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
-        df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
-        
-        DISPLAY_COLUMNS = ['Descricao', 'Valor_Formatado']
-
-        col_rec, col_des = st.columns(2)
-
-        with col_rec:
-            st.markdown("##### 🟢 Receitas (Entradas)")
-            if df_receitas.empty:
-                st.info("Nenhuma Receita registrada para este mês.")
-            else:
-                st.dataframe(
-                    df_receitas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
-                    use_container_width=True, 
-                    hide_index=True
-                )
-
-        with col_des:
-            st.markdown("##### 🔴 Despesas (Saídas)")
-            if df_despesas.empty:
-                st.info("Nenhuma Despesa registrada para este mês.")
-            else:
-                st.dataframe(
-                    df_despesas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
-                    use_container_width=True, 
-                    hide_index=True
-                )
-        
-        st.markdown("---") 
-
-        # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) ===
-
-        st.header("🛠️ Edição e Exclusão")
-        
-        with st.expander("📝 Gerenciar Transação", expanded=True):
+        lucro_anual_html += f"""
+        <tr>
+            <td>{row['Mes_Ano'].strftime('%b/%Y')}</td>
+            <td>
+                <div style="background-color: #2c2c2c; border-radius: 4px; overflow: hidden; height: 20px; text-align: left;">
+                    <div style="width: {largura}%; background-color: {cor_barra}; height: 100%; text-align: right; line-height: 20px; color: white; padding-right: 5px; box-sizing: border-box;">
+                        {format_brl(lucro)}
+                    </div>
+                </div>
+            </td>
+        </tr>
+        """
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Dashboard ML Insights - Previsão de Lucro Líquido</title>
+         <style>
+            /* --- ESTILOS DARK MODE EXCLUSIVO --- */
+            body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #121212; color: #e0e0e0; }}
+            .container {{ max-width: 900px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }}
+            h2 {{ color: #bb86fc; border-bottom: 2px solid #bb86fc; padding-bottom: 10px; }}
             
-            # Filtra as transações apenas para o mês selecionado
-            transacoes_atuais = df_filtrado['ID Transacao'].tolist()
+            /* Metric Box (Cor baseada na previsão) */
+            .metric-box {{ padding: 20px; margin-bottom: 20px; border-radius: 8px; background-color: {cor}; color: {texto_box_cor}; text-align: center; }}
+            .metric-box h3 {{ margin-top: 0; font-size: 1.5em; }}
+            .metric-box p {{ font-size: 2.5em; font-weight: bold; }}
             
-            def formatar_selecao_transacao(id_val):
-                try:
-                    # Busca os dados da transação, não apenas os filtrados
-                    df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
-                    valor_formatado = format_currency(df_linha['Valor'])
-                    return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado})"
-                except:
-                    return f"ID Inconsistente ({id_val[:4]}...)"
+            .info-box {{ padding: 10px; border: 1px dashed #444; background-color: #2c2c2c; margin-top: 15px; }}
+            
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
+            th, td {{ padding: 10px; border: 1px solid #333; text-align: left; }}
+            th {{ background-color: #3700b3; color: white; }}
+            
+            /* Cores de Fundo da Tabela no Dark Mode */
+            .lucro-positivo-dark {{ background-color: #1f311f; color: #c7ecc7; }} 
+            .lucro-negativo-dark {{ background-color: #3b1f1f; color: #ffbaba; }} 
+            
+            .text-negativo {{ color: red; font-weight: bold; }}
+            
+            .metric-card {{ background: #2c2c2c; padding: 15px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); margin-top: 10px; }}
+            .metric-card h4 {{ color: #03dac6; margin-top: 0; }}
+            .metric-card p {{ font-size: 1.1em; font-weight: bold; color: #e0e0e0; }}
+            .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 20px; }}
+            a {{ color: #bb86fc; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>🔮 Insights de Machine Learning e Negócios</h2>
+            <p>Modelo: Regressão Linear Simples. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
+            
+            <div class="metric-box">
+                <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
+                <p>{format_brl(previsao)}</p>
+            </div>
+            
+            <div class="info-box">
+                <h4>Insight da Previsão:</h4>
+                <p>{insight}</p>
+            </div>
 
-            transacao_selecionada_id = st.selectbox(
-                "Selecione a Transação para Ação (Edição/Exclusão):",
-                options=transacoes_atuais,
-                index=0 if transacoes_atuais else None,
-                format_func=formatar_selecao_transacao,
-                key='sel_upd_del_c'
+            <div class="info-box">
+                <h4>Métricas de Qualidade (Governança de IA)</h4>
+                <p>Lucro Real Mês Passado: **{format_brl(ultimo_valor_real)}**</p>
+                <p>Erro Absoluto Médio Histórico (MAE): **{format_brl(mae)}**</p>
+                <p>A governança de IA exige que você monitore o MAE: quanto menor, melhor a previsão histórica. </p>
+                <p style="font-size: 0.9em; color: #bb86fc;">*NOTA: O Lucro Líquido só considera Gastos com status 'PAGO', garantindo a precisão do seu fluxo de caixa.*</p>
+            </div>
+            
+            <h2>🏆 Principais Indicadores de Negócio</h2>
+            <p>Métricas de negócio baseadas nos dados brutos da aba VENDAS.</p>
+            <div class="grid-2">
+                 <div class="metric-card">
+                    <h4>Melhor Comprador (Receita Gerada)</h4>
+                    <p>{melhor_comprador}</p>
+                </div>
+                 <div class="metric-card">
+                    <h4>Sabor Mais Vendido (Receita Gerada)</h4>
+                    <p>{produto_mais_vendido}</p>
+                </div>
+            </div>
+
+            <h2>📈 Análise de Lucro Mensal (Último Ano)</h2>
+            <p>Visualização da performance de Lucro Líquido ao longo dos meses. O tamanho da barra indica a magnitude do valor.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">Mês/Ano</th>
+                        <th>Lucro Líquido (Visualização)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {lucro_anual_html}
+                </tbody>
+            </table>
+            
+            <h2>📊 Tabela de Auditoria Histórica (Base do ML)</h2>
+            <p>Estes são os dados consolidados de Vendas e Gastos (apenas os PAGOS) utilizados para treinar o modelo de previsão.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Mês/Ano</th>
+                        <th>Vendas Totais</th>
+                        <th>Gastos Totais</th>
+                        <th>Lucro Líquido (Vendas - Gastos)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {tabela_auditoria_html}
+                </tbody>
+            </table>
+
+            <p style="margin-top: 20px; font-size: 0.9em; color: #777;">Dashboard hospedado em: <a href="{URL_DASHBOARD}" target="_blank">{URL_DASHBOARD}</a></p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    print(f"Dashboard de ML gerado com sucesso: {OUTPUT_HTML}")
+
+
+# --- EXECUÇÃO PRINCIPAL (COMPLETA E CORRIGIDA) ---
+if __name__ == "__main__":
+    try:
+        gc = autenticar_gspread()
+        
+        df_mensal, df_vendas_bruto = carregar_e_combinar_dados(gc) 
+        
+        if not df_mensal.empty:
+            previsao, mae, ultimo_lucro_real = treinar_e_prever(df_mensal)
+            
+            melhor_comprador, produto_mais_vendido = analisar_metricas_negocio(df_vendas_bruto)
+            
+            montar_dashboard_ml(
+                previsao, 
+                mae, 
+                ultimo_lucro_real, 
+                df_mensal,
+                melhor_comprador,
+                produto_mais_vendido
             )
-        
-            if transacao_selecionada_id:
-                try:
-                    transacao_dados = df_transacoes[df_transacoes['ID Transacao'] == transacao_selecionada_id].iloc[0]
-                except IndexError:
-                    st.error("Dados da transação selecionada não encontrados.")
-                    transacao_dados = None
-                    
-                if transacao_dados is not None:
-
-                    col_u, col_d = st.columns([4, 1])
-
-                    with col_u:
-                        st.markdown("##### Atualizar Transação Selecionada")
-                        
-                        with st.form("form_update_transacao_c"):
-                            
-                            categoria_existente = transacao_dados['Categoria']
-                            mes_existente = transacao_dados['Mês']
-                            
-                            try:
-                                # Garante que o valor existente seja um float válido
-                                valor_existente = float(transacao_dados['Valor']) 
-                                # Separando o valor existente para o novo input
-                                reais_existentes = int(valor_existente)
-                                centavos_existentes = int(round((valor_existente - reais_existentes) * 100))
-                            except (ValueError, TypeError):
-                                reais_existentes = None
-                                centavos_existentes = None
-                            
-                            col_upd_1, col_upd_2 = st.columns(2)
-                            
-                            try:
-                                mes_idx = list(MESES_PT.values()).index(mes_existente)
-                            except ValueError:
-                                mes_idx = 0 
-                                
-                            novo_mes = col_upd_1.selectbox(
-                                "Mês", 
-                                list(MESES_PT.values()), 
-                                index=mes_idx, 
-                                key='ut_mes_c'
-                            )
-
-                            try:
-                                cat_index = ["Receita", "Despesa"].index(categoria_existente)
-                            except ValueError:
-                                cat_index = 0
-                                
-                            novo_categoria = col_upd_2.selectbox("Tipo de Transação", ["Receita", "Despesa"], index=cat_index, key='ut_tipo_c')
-                            
-                            # CAMPOS DE EDIÇÃO
-                            col_upd_v1, col_upd_v2 = st.columns([2, 1])
-                            
-                            novo_reais_input = col_upd_v1.number_input(
-                                "Valor (R$ - Reais)", 
-                                min_value=0, 
-                                value=reais_existentes, 
-                                step=1, 
-                                format="%d", 
-                                key="ut_reais_c"
-                            )
-
-                            novo_centavos_input = col_upd_v2.number_input(
-                                "Centavos", 
-                                min_value=0, 
-                                max_value=99, 
-                                value=centavos_existentes, 
-                                step=1, 
-                                format="%d", 
-                                key="ut_centavos_c"
-                            )
-                            
-                            novo_descricao = st.text_input("Descrição", value=transacao_dados['Descricao'], key='ut_desc_c')
-                            
-                            update_button = st.form_submit_button("Salvar Atualizações (Update)")
-
-                            if update_button:
-                                
-                                # Trata o valor None como 0 para o cálculo na edição
-                                novo_reais_final = novo_reais_input if novo_reais_input is not None else 0
-                                novo_centavos_final = novo_centavos_input if novo_centavos_input is not None else 0
-                                
-                                # Reconstrução do novo valor float
-                                novo_valor = novo_reais_final + (novo_centavos_final / 100)
-                                
-                                if novo_descricao and novo_valor >= 0:
-                                    dados_atualizados = {
-                                        'ID Transacao': transacao_selecionada_id, 
-                                        'Descricao': novo_descricao,
-                                        'Valor': novo_valor, 
-                                        'Categoria': novo_categoria,
-                                        'Mês': novo_mes,
-                                    }
-                                    atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
-                                    t.sleep(1)
-                                else:
-                                    st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
-
-                    with col_d:
-                        st.markdown("##### Excluir")
-                        st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])})")
-                        
-                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
-                            deletar_transacao(spreadsheet, transacao_selecionada_id)
-                            t.sleep(1)
-    else:
-        # Mensagens de fallback (garantindo que não haja erro de índice)
-        if selected_month and not df_filtrado.empty:
-             st.error("Erro na coluna 'Valor' do DataFrame filtrado. Verifique a planilha.")
-        elif selected_month:
-             st.info(f"Sem transações para o mês de **{selected_month}**.")
-
-
-with st.sidebar:
-    st.markdown("---")
-    st.caption(f"Última leitura de dados: {datetime.now().strftime('%H:%M:%S')}")
+        else:
+            print("Execução ML interrompida por falta de dados históricos.")
+            
+    except Exception as e:
+        error_message = str(e)
+        print(f"ERRO CRÍTICO NA EXECUÇÃO DO ML: {error_message}")
+        with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
+             f.write(f"<html><body><h2>Erro Crítico na Geração do ML Dashboard</h2><p>Detalhes: {error_message}</p><p>Verifique as credenciais, permissões de acesso ou os nomes das colunas: VENDAS (DATA E HORA, SABORES, DADOS DO COMPRADOR, VALOR DA VENDA), GASTOS (DATA E HORA, VALOR, Status)</p></body></html>")
