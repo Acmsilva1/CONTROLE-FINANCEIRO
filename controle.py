@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & 5 KPIS)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & 5 KPIS PERSONALIZADOS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -375,31 +375,34 @@ else:
             (df_filtrado['Status'] == 'PAGO')
         ]['Valor'].sum()
         
-        # 3. Margem Líquida Real (Receitas PAGAS - Despesas PAGAS)
+        # 3. Lucro Líquido Real (Receitas PAGAS - Despesas PAGAS)
         margem_liquida_real = total_receita_paga - total_despesa_paga
         
-        # 4. NOVO KPI CRÍTICO: DESPESAS PENDENTES
+        # 4. NOVO KPI: DESPESAS PENDENTES (Despesa Bruta - Despesa Paga)
         total_despesa_pendente = total_despesa_bruta - total_despesa_paga
         
         margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal"
 
-        # ATENÇÃO: EXPANDINDO PARA 5 COLUNAS
+        # ATENÇÃO: 5 COLUNAS NA ORDEM SOLICITADA PELO USUÁRIO
         col1, col2, col3, col4, col5 = st.columns(5)
         
-        # CARD 1: Receitas Brutas 
+        # CARD 1: Receitas (Brutas) - O total que a empresa gerou
         col1.metric("Receitas (Brutas)", format_currency(total_receita_bruta))
         
-        # CARD 2: Receitas Pagas
-        col2.metric("Receitas (PAGAS)", format_currency(total_receita_paga))
+        # CARD 2: Despesas Brutas - O total que a empresa teve que arcar
+        col2.metric("Despesas (Brutas)", format_currency(total_despesa_bruta)) 
 
-        # CARD 3: Despesas Brutas
-        col3.metric("Despesas (Brutas)", format_currency(total_despesa_bruta))
+        # CARD 3: Despesas Pagas - O que de fato saiu do caixa
+        col3.metric("Despesas (PAGAS)", format_currency(total_despesa_paga))
         
-        # CARD 4: Despesas Pendentes (O stress futuro)
-        col4.metric("🔴 Despesas (PENDENTES)", format_currency(total_despesa_pendente), delta="A Pagar", delta_color="inverse")
+        # CARD 4: Despesas Pendentes - O risco do "a pagar"
+        col4.metric("🔴 Despesas (PENDENTES)", 
+                    format_currency(total_despesa_pendente), 
+                    delta="A Pagar", 
+                    delta_color="inverse")
         
-        # CARD 5: Valor Líquido Real (Fluxo de Caixa)
-        col5.metric("Valor Líquido (FLUXO REAL)", 
+        # CARD 5: Lucro Líquido (FLUXO REAL) - O resultado da operação paga
+        col5.metric("Lucro Líquido", 
                     format_currency(margem_liquida_real), 
                     delta=f"{'PREJUÍZO' if margem_liquida_real < 0 else 'LUCRO'}", 
                     delta_color=margem_delta_color)
