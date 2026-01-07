@@ -1,10 +1,11 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & 5 KPIS PERSONALIZADOS)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & REFRESH OTIMIZADO)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 import uuid
-import time as t 
-from streamlit_autorefresh import st_autorefresh 
+# import time as t # REMOVIDO!
+# from streamlit_autorefresh import st_autorefresh # REMOVIDO O IMPORT
+
 import gspread
 from google.oauth2 import service_account
 
@@ -82,13 +83,14 @@ def conectar_sheets_resource():
             return spreadsheet
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
-                t.sleep(2 ** attempt) 
+                # t.sleep(2 ** attempt) # REMOVIDO!
+                pass
             else:
                 st.error(f"🚨 Erro fatal ao conectar após {MAX_RETRIES} tentativas. Erro: {e}")
                 return None
     return None
 
-@st.cache_data(ttl=10) 
+@st.cache_data(ttl=10) # TTL de 10 segundos garante que a leitura de dados é rápida.
 def carregar_dados(): 
     """Lê a aba TRANSACOES forçando a leitura do valor puro (UNFORMATTED_VALUE)."""
     spreadsheet = conectar_sheets_resource() 
@@ -135,7 +137,7 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         
         sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
         st.success(f"🎉 {dados_do_form['Categoria']} criada com sucesso! Atualizando dados...")
-        carregar_dados.clear() 
+        carregar_dados.clear() # LIMPA O CACHE para forçar a atualização imediata
         return True
     except Exception as e:
         st.error(f"Erro ao adicionar transação: {e}")
@@ -153,7 +155,7 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
 
         sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
         st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
-        carregar_dados.clear()
+        carregar_dados.clear() # LIMPA O CACHE para forçar a atualização imediata
         return True
     except Exception as e:
         st.error(f"🚫 Erro ao atualizar a transação: {e}")
@@ -167,7 +169,7 @@ def deletar_transacao(spreadsheet, id_transacao):
         linha_index = cell.row
         sheet.delete_rows(linha_index)
         st.success(f"🗑️ Transação {id_transacao[:8]}... deletada. Atualizando dados...")
-        carregar_dados.clear()
+        carregar_dados.clear() # LIMPA O CACHE para forçar a atualização imediata
         return True
     except Exception as e:
         st.error(f"🚫 Erro ao deletar a transação: {e}")
@@ -191,11 +193,17 @@ spreadsheet = conectar_sheets_resource()
 if spreadsheet is None:
     st.stop() 
 
-# Auto-Refresh de 20 segundos
-st_autorefresh(interval=20000, key="data_refresh_key_simple")
-st.sidebar.info("🔄 Atualização automática a cada 20 segundos.")
+# NOVO BLOCO: Botão de Atualização Manual
+with st.sidebar:
+    st.markdown("---")
+    # Este botão limpa o cache e força um re-run imediato.
+    if st.button("Forçar Atualização Manual 🔄", help="Limpa o cache e busca os dados mais recentes do Google Sheets."):
+        carregar_dados.clear()
+        st.rerun()
+    st.markdown("---")
+    st.info("O sistema atualiza automaticamente após cada inserção, edição ou exclusão de transação.")
 
-# Carregamento de Dados
+# Carregamento de Dados (usará o cache ou fará a leitura se o cache for limpo)
 df_transacoes = carregar_dados() 
 
 # === INSERÇÃO DE DADOS (CREATE) - FORMS SEPARADOS ===
@@ -260,7 +268,7 @@ with col_rec_form:
                     "Status": STATUS_DEFAULT # FIXO como PAGO
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
-                t.sleep(1) 
+                # t.sleep(1) # REMOVIDO!
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Receita.")
 
@@ -327,7 +335,7 @@ with col_des_form:
                     "Status": status_select_d # Selecionado pelo usuário
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
-                t.sleep(1) 
+                # t.sleep(1) # REMOVIDO!
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Despesa.")
 
@@ -588,7 +596,7 @@ else:
                                         'Status': novo_status # Novo campo na atualização
                                     }
                                     atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
-                                    t.sleep(1)
+                                    # t.sleep(1) # REMOVIDO!
                                 else:
                                     st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
 
@@ -600,7 +608,7 @@ else:
                         
                         if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
                             deletar_transacao(spreadsheet, transacao_selecionada_id)
-                            t.sleep(1)
+                            # t.sleep(1) # REMOVIDO!
     else:
         if selected_month and not df_filtrado.empty:
              st.error("Erro na coluna 'Valor' do DataFrame filtrado. Verifique a planilha.")
@@ -610,4 +618,4 @@ else:
 
 with st.sidebar:
     st.markdown("---")
-    st.caption(f"Última leitura de dados: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(f"Última leitura de dados (Cache/Sheets): {datetime.now().strftime('%H:%M:%S')}")
