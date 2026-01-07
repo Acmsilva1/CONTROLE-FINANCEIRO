@@ -60,6 +60,8 @@ def format_currency(value):
 def get_service_account_credentials():
     """Carrega as credenciais da conta de serviço."""
     try:
+        # AQUI VOCÊ DEVE CONFIGURAR SUAS SECRETS NO STREAMLIT CLOUD
+        # Se estiver rodando local, certifique-se que o arquivo de credenciais está acessível
         creds_dict = st.secrets["gcp_service_account"] 
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
@@ -83,7 +85,6 @@ def conectar_sheets_resource():
             return spreadsheet
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
-                # t.sleep(2 ** attempt) # REMOVIDO O SLEEP
                 pass 
             else:
                 st.error(f"🚨 Erro fatal ao conectar após {MAX_RETRIES} tentativas. Erro: {e}")
@@ -268,10 +269,9 @@ with col_rec_form:
                     "Descricao": descricao_r, 
                     "Categoria": 'Receita', 
                     "Valor": valor_r,
-                    "Status": STATUS_DEFAULT # FIXO como PAGO
+                    "Status": STATUS_DEFAULT 
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
-                # t.sleep(1) # REMOVIDO!
                 st.rerun() # Força a atualização após o sucesso
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Receita.")
@@ -336,10 +336,9 @@ with col_des_form:
                     "Descricao": descricao_d, 
                     "Categoria": 'Despesa', 
                     "Valor": valor_d,
-                    "Status": status_select_d # Selecionado pelo usuário
+                    "Status": status_select_d 
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
-                # t.sleep(1) # REMOVIDO!
                 st.rerun() # Força a atualização após o sucesso
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Despesa.")
@@ -364,6 +363,7 @@ else:
     )
 
     if selected_month and 'Mês' in df_transacoes.columns:
+        # Filtra os dados
         df_filtrado = df_transacoes[df_transacoes['Mês'] == selected_month].copy()
     else:
         df_filtrado = pd.DataFrame() 
@@ -418,8 +418,7 @@ else:
         
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
-        # DataFrame a ser exibido (unindo receitas e despesas filtradas)
-        # Ordena para exibir as Receitas primeiro, depois Despesas (e Status PAGO antes de PENDENTE)
+        # DataFrame a ser exibido (Ordenado)
         df_display = df_filtrado.copy().sort_values(by=['Categoria', 'Status', 'Valor'], ascending=[False, True, False])
         
         if df_display.empty:
@@ -440,7 +439,7 @@ else:
                 
                 id_transacao = row['ID Transacao']
                 
-                # 1. Se a linha não está em modo de edição, exibe a linha normal com botões
+                # 1. Se a linha NÃO está em modo de edição (EXIBIÇÃO NORMAL + BOTÕES)
                 if st.session_state.id_edicao_ativa != id_transacao:
                     
                     col_desc, col_cat, col_val_status, col_btn_edit, col_btn_del = st.columns([0.4, 0.2, 0.2, 0.1, 0.1])
@@ -462,8 +461,10 @@ else:
                         deletar_transacao(spreadsheet, id_transacao)
                         st.rerun() # Força a atualização
                 
-                # 2. Se a linha está em modo de edição, exibe o formulário de edição
-                else:
+                    st.markdown("---") # Separador entre linhas normais
+                
+                # 2. Se a linha ESTÁ em modo de edição (FORMULÁRIO)
+                else: 
                     st.warning(f"📝 Editando Transação: **{row['Descricao']}**")
                     
                     with st.form(key=f"form_update_c_{id_transacao}"):
@@ -556,16 +557,12 @@ else:
                                     'Status': novo_status
                                 }
                                 atualizar_transacao(spreadsheet, id_transacao, dados_atualizados) 
-                                # t.sleep(1) # REMOVIDO!
                                 st.session_state.id_edicao_ativa = None # Limpa o estado após o sucesso
                                 st.rerun()
                             else:
                                 st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
 
                     st.markdown("---") # Separador para o formulário de edição
-
-                else:
-                    st.markdown("---") # Separador entre linhas
 
     else:
         if selected_month and not df_filtrado.empty:
