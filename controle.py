@@ -1,10 +1,10 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & REFRESH OTIMIZADO)
+# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & UX OTIMIZADA)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 import uuid
-# import time as t # REMOVIDO!
-# from streamlit_autorefresh import st_autorefresh # REMOVIDO O IMPORT
+# import time as t  # REMOVIDO!
+# from streamlit_autorefresh import st_autorefresh # REMOVIDO!
 
 import gspread
 from google.oauth2 import service_account
@@ -83,14 +83,14 @@ def conectar_sheets_resource():
             return spreadsheet
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
-                # t.sleep(2 ** attempt) # REMOVIDO!
-                pass
+                # t.sleep(2 ** attempt) # REMOVIDO O SLEEP
+                pass 
             else:
                 st.error(f"🚨 Erro fatal ao conectar após {MAX_RETRIES} tentativas. Erro: {e}")
                 return None
     return None
 
-@st.cache_data(ttl=10) # TTL de 10 segundos garante que a leitura de dados é rápida.
+@st.cache_data(ttl=10) # TTL de 10 segundos para leitura cacheada
 def carregar_dados(): 
     """Lê a aba TRANSACOES forçando a leitura do valor puro (UNFORMATTED_VALUE)."""
     spreadsheet = conectar_sheets_resource() 
@@ -106,11 +106,11 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             
-            # Garante que a coluna Status exista (para dados antigos que não a tinham)
+            # Garante que a coluna Status exista 
             if 'Status' not in df_transacoes.columns:
                 df_transacoes['Status'] = STATUS_DEFAULT 
             
-            # Converte para numérico, corrigindo a coluna 'Valor'
+            # Converte para numérico
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
             # Preenche Status vazio/NaN com o Default
@@ -128,7 +128,7 @@ def carregar_dados():
 
 
 def adicionar_transacao(spreadsheet, dados_do_form):
-    """Insere uma nova linha de transação no Sheets. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
+    """Insere uma nova linha de transação no Sheets."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
@@ -137,14 +137,14 @@ def adicionar_transacao(spreadsheet, dados_do_form):
         
         sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
         st.success(f"🎉 {dados_do_form['Categoria']} criada com sucesso! Atualizando dados...")
-        carregar_dados.clear() # LIMPA O CACHE para forçar a atualização imediata
+        carregar_dados.clear() # LIMPA O CACHE
         return True
     except Exception as e:
         st.error(f"Erro ao adicionar transação: {e}")
         return False
 
 def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
-    """Atualiza uma transação existente. ENVIA O VALOR FLOAT PURO com USER_ENTERED."""
+    """Atualiza uma transação existente."""
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         cell = sheet.find(id_transacao) 
@@ -155,7 +155,7 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
 
         sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
         st.success(f"🔄 Transação {id_transacao[:8]}... atualizada. Atualizando dados...")
-        carregar_dados.clear() # LIMPA O CACHE para forçar a atualização imediata
+        carregar_dados.clear() # LIMPA O CACHE
         return True
     except Exception as e:
         st.error(f"🚫 Erro ao atualizar a transação: {e}")
@@ -169,7 +169,7 @@ def deletar_transacao(spreadsheet, id_transacao):
         linha_index = cell.row
         sheet.delete_rows(linha_index)
         st.success(f"🗑️ Transação {id_transacao[:8]}... deletada. Atualizando dados...")
-        carregar_dados.clear() # LIMPA O CACHE para forçar a atualização imediata
+        carregar_dados.clear() # LIMPA O CACHE
         return True
     except Exception as e:
         st.error(f"🚫 Erro ao deletar a transação: {e}")
@@ -188,20 +188,23 @@ if 'filtro_mes' not in st.session_state:
     mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
     st.session_state.filtro_mes = mes_atual_init
     
+# NOVO ESTADO: Armazena o ID da transação que está sendo editada
+if 'id_edicao_ativa' not in st.session_state:
+    st.session_state['id_edicao_ativa'] = None
+
 # Conexão
 spreadsheet = conectar_sheets_resource()
 if spreadsheet is None:
     st.stop() 
 
-# NOVO BLOCO: Botão de Atualização Manual
+# --- NOVO BLOCO DE REFRESH MANUAL ---
 with st.sidebar:
     st.markdown("---")
-    # Este botão limpa o cache e força um re-run imediato.
     if st.button("Forçar Atualização Manual 🔄", help="Limpa o cache e busca os dados mais recentes do Google Sheets."):
-        carregar_dados.clear()
-        st.rerun()
+        carregar_dados.clear() # Limpa o cache para forçar nova leitura
+        st.rerun() # Força a re-execução do script
     st.markdown("---")
-    st.info("O sistema atualiza automaticamente após cada inserção, edição ou exclusão de transação.")
+    st.info("Atualização: Automática ao salvar/deletar, ou use o botão manual.")
 
 # Carregamento de Dados (usará o cache ou fará a leitura se o cache for limpo)
 df_transacoes = carregar_dados() 
@@ -269,6 +272,7 @@ with col_rec_form:
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
                 # t.sleep(1) # REMOVIDO!
+                st.rerun() # Força a atualização após o sucesso
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Receita.")
 
@@ -336,6 +340,7 @@ with col_des_form:
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
                 # t.sleep(1) # REMOVIDO!
+                st.rerun() # Força a atualização após o sucesso
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Despesa.")
 
@@ -386,30 +391,22 @@ else:
         # 3. Lucro Líquido Real (Receitas PAGAS - Despesas PAGAS)
         margem_liquida_real = total_receita_paga - total_despesa_paga
         
-        # 4. NOVO KPI: DESPESAS PENDENTES (Despesa Bruta - Despesa Paga)
+        # 4. KPI: DESPESAS PENDENTES (Despesa Bruta - Despesa Paga)
         total_despesa_pendente = total_despesa_bruta - total_despesa_paga
         
         margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal"
 
-        # ATENÇÃO: 5 COLUNAS NA ORDEM SOLICITADA PELO USUÁRIO
+        # 5 COLUNAS
         col1, col2, col3, col4, col5 = st.columns(5)
         
-        # CARD 1: Receitas (Brutas) - O total que a empresa gerou
+        # CARDS
         col1.metric("Receitas (Brutas)", format_currency(total_receita_bruta))
-        
-        # CARD 2: Despesas Brutas - O total que a empresa teve que arcar
         col2.metric("Despesas (Brutas)", format_currency(total_despesa_bruta)) 
-
-        # CARD 3: Despesas Pagas - O que de fato saiu do caixa
         col3.metric("Despesas (PAGAS)", format_currency(total_despesa_paga))
-        
-        # CARD 4: Despesas Pendentes - O risco do "a pagar"
         col4.metric("🔴 Despesas (PENDENTES)", 
                     format_currency(total_despesa_pendente), 
                     delta="A Pagar", 
                     delta_color="inverse")
-        
-        # CARD 5: Lucro Líquido (FLUXO REAL) - O resultado da operação paga
         col5.metric("Lucro Líquido", 
                     format_currency(margem_liquida_real), 
                     delta=f"{'PREJUÍZO' if margem_liquida_real < 0 else 'LUCRO'}", 
@@ -417,198 +414,159 @@ else:
 
         st.markdown("---")
         
-        # === VISUALIZAÇÃO DA TABELA (READ) ===
-
+        # === VISUALIZAÇÃO DA TABELA COM BOTÕES DE AÇÃO (EDITAR/EXCLUIR) ===
+        
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
-        df_base_display = df_filtrado.copy()
-        df_base_display['Valor_Formatado'] = df_base_display['Valor'].apply(format_currency)
+        # DataFrame a ser exibido (unindo receitas e despesas filtradas)
+        # Ordena para exibir as Receitas primeiro, depois Despesas (e Status PAGO antes de PENDENTE)
+        df_display = df_filtrado.copy().sort_values(by=['Categoria', 'Status', 'Valor'], ascending=[False, True, False])
         
-        df_receitas = df_base_display[df_base_display['Categoria'] == 'Receita']
-        df_despesas = df_base_display[df_base_display['Categoria'] == 'Despesa']
-        
-        DISPLAY_COLUMNS = ['Descricao', 'Status', 'Valor_Formatado']
-
-        col_rec, col_des = st.columns(2)
-
-        with col_rec:
-            st.markdown("##### 🟢 Receitas (Entradas)")
-            if df_receitas.empty:
-                st.info("Nenhuma Receita registrada para este mês.")
-            else:
-                st.dataframe(
-                    df_receitas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
-                    use_container_width=True, 
-                    hide_index=True
-                )
-
-        with col_des:
-            st.markdown("##### 🔴 Despesas (Saídas)")
-            if df_despesas.empty:
-                st.info("Nenhuma Despesa registrada para este mês.")
-            else:
-                st.dataframe(
-                    df_despesas[DISPLAY_COLUMNS].rename(columns={'Valor_Formatado': 'Valor'}),
-                    use_container_width=True, 
-                    hide_index=True
-                )
-        
-        st.markdown("---") 
-
-        # === SEÇÃO EDIÇÃO E EXCLUSÃO (UPDATE/DELETE) ===
-
-        st.header("🛠️ Edição e Exclusão")
-        
-        with st.expander("📝 Gerenciar Transação", expanded=True):
+        if df_display.empty:
+            st.info(f"Sem transações para o mês de **{selected_month}**.")
+        else:
             
-            transacoes_atuais = df_filtrado['ID Transacao'].tolist()
+            # Cabeçalhos
+            cols_header = st.columns([0.4, 0.2, 0.2, 0.1, 0.1])
+            cols_header[0].markdown("**Descrição**")
+            cols_header[1].markdown("**Categoria**")
+            cols_header[2].markdown("**Valor / Status**")
+            cols_header[3].markdown(" ") # Botão Editar
+            cols_header[4].markdown(" ") # Botão Excluir
+            st.markdown("---")
             
-            def formatar_selecao_transacao(id_val):
-                try:
-                    df_linha = df_transacoes[df_transacoes['ID Transacao'] == id_val].iloc[0] 
-                    valor_formatado = format_currency(df_linha['Valor'])
-                    status_info = f" | Status: {df_linha.get('Status', STATUS_DEFAULT)}" 
-                    return f"{df_linha['Descricao']} ({df_linha['Mês']} | {valor_formatado}{status_info})"
-                except:
-                    return f"ID Inconsistente ({id_val[:4]}...)"
-
-            transacao_selecionada_id = st.selectbox(
-                "Selecione a Transação para Ação (Edição/Exclusão):",
-                options=transacoes_atuais,
-                index=0 if transacoes_atuais else None,
-                format_func=formatar_selecao_transacao,
-                key='sel_upd_del_c'
-            )
-        
-            if transacao_selecionada_id:
-                try:
-                    transacao_dados = df_transacoes[df_transacoes['ID Transacao'] == transacao_selecionada_id].iloc[0]
-                except IndexError:
-                    st.error("Dados da transação selecionada não encontrados.")
-                    transacao_dados = None
+            # Loop sobre cada transação
+            for index, row in df_display.iterrows():
+                
+                id_transacao = row['ID Transacao']
+                
+                # 1. Se a linha não está em modo de edição, exibe a linha normal com botões
+                if st.session_state.id_edicao_ativa != id_transacao:
                     
-                if transacao_dados is not None:
+                    col_desc, col_cat, col_val_status, col_btn_edit, col_btn_del = st.columns([0.4, 0.2, 0.2, 0.1, 0.1])
+                    
+                    # Estilização da Descrição
+                    categoria_cor = "green" if row['Categoria'] == 'Receita' else "red"
+                    
+                    col_desc.markdown(f"**<span style='color:{categoria_cor}'>{row['Descricao']}</span>**", unsafe_allow_html=True)
+                    col_cat.write(row['Categoria'])
+                    col_val_status.write(f"{format_currency(row['Valor'])} ({row['Status']})")
 
-                    col_u, col_d = st.columns([4, 1])
+                    # Botão Editar
+                    if col_btn_edit.button("✍️", key=f'edit_{id_transacao}', help="Editar esta transação"):
+                        st.session_state.id_edicao_ativa = id_transacao # Ativa o formulário
+                        st.rerun() # Força o re-run para exibir o formulário
 
-                    with col_u:
-                        st.markdown("##### Atualizar Transação Selecionada")
+                    # Botão Excluir
+                    if col_btn_del.button("🗑️", key=f'del_{id_transacao}', help="Excluir esta transação"):
+                        deletar_transacao(spreadsheet, id_transacao)
+                        st.rerun() # Força a atualização
+                
+                # 2. Se a linha está em modo de edição, exibe o formulário de edição
+                else:
+                    st.warning(f"📝 Editando Transação: **{row['Descricao']}**")
+                    
+                    with st.form(key=f"form_update_c_{id_transacao}"):
                         
-                        # USANDO CHAVE DINÂMICA
-                        with st.form(f"form_update_transacao_c_{transacao_selecionada_id}"): 
-                            
-                            categoria_existente = transacao_dados['Categoria']
-                            mes_existente = transacao_dados['Mês']
-                            
-                            try:
-                                valor_existente = float(transacao_dados['Valor']) 
-                                reais_existentes = int(valor_existente)
-                                centavos_existentes = int(round((valor_existente - reais_existentes) * 100))
-                            except (ValueError, TypeError):
-                                reais_existentes = None
-                                centavos_existentes = None
-                            
-                            # 3 colunas para os campos de topo: Mês, Categoria, Status
-                            col_upd_1, col_upd_2, col_upd_3 = st.columns(3) 
-                            
-                            try:
-                                mes_idx = list(MESES_PT.values()).index(mes_existente)
-                            except ValueError:
-                                mes_idx = 0 
-                                
-                            novo_mes = col_upd_1.selectbox(
-                                "Mês", 
-                                list(MESES_PT.values()), 
-                                index=mes_idx, 
-                                key=f'ut_mes_c_{transacao_selecionada_id}'
-                            )
-
-                            try:
-                                cat_index = ["Receita", "Despesa"].index(categoria_existente)
-                            except ValueError:
-                                cat_index = 0
-                                
-                            novo_categoria = col_upd_2.selectbox(
-                                "Tipo de Transação", 
-                                ["Receita", "Despesa"], 
-                                index=cat_index, 
-                                key=f'ut_tipo_c_{transacao_selecionada_id}'
-                            )
-                            
-                            # Status na Edição
-                            novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
-                            try:
-                                status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
-                            except ValueError:
-                                status_idx = 0 
-
-                            novo_status = col_upd_3.selectbox(
-                                "Status", 
-                                ['PAGO', 'PENDENTE'], 
-                                index=status_idx, 
-                                key=f'ut_status_c_{transacao_selecionada_id}'
-                            )
-                            
-                            # CAMPOS DE EDIÇÃO
-                            col_upd_v1, col_upd_v2 = st.columns([2, 1])
-                            
-                            novo_reais_input = col_upd_v1.number_input(
-                                "Valor (R$ - Reais)", 
-                                min_value=0, 
-                                value=reais_existentes, 
-                                step=1, 
-                                format="%d", 
-                                key=f"ut_reais_c_{transacao_selecionada_id}"
-                            )
-
-                            novo_centavos_input = col_upd_v2.number_input(
-                                "Centavos", 
-                                min_value=0, 
-                                max_value=99, 
-                                value=centavos_existentes, 
-                                step=1, 
-                                format="%d", 
-                                key=f"ut_centavos_c_{transacao_selecionada_id}"
-                            )
-                            
-                            novo_descricao = st.text_input(
-                                "Descrição", 
-                                value=transacao_dados['Descricao'], 
-                                key=f'ut_desc_c_{transacao_selecionada_id}'
-                            )
-                            
-                            update_button = st.form_submit_button("Salvar Atualizações (Update)")
-
-                            if update_button:
-                                
-                                novo_reais_final = novo_reais_input if novo_reais_input is not None else 0
-                                novo_centavos_final = novo_centavos_input if novo_centavos_input is not None else 0
-                                
-                                novo_valor = novo_reais_final + (novo_centavos_final / 100)
-                                
-                                if novo_descricao and novo_valor >= 0:
-                                    dados_atualizados = {
-                                        'ID Transacao': transacao_selecionada_id, 
-                                        'Descricao': novo_descricao,
-                                        'Valor': novo_valor, 
-                                        'Categoria': novo_categoria,
-                                        'Mês': novo_mes,
-                                        'Status': novo_status # Novo campo na atualização
-                                    }
-                                    atualizar_transacao(spreadsheet, transacao_selecionada_id, dados_atualizados) 
-                                    # t.sleep(1) # REMOVIDO!
-                                else:
-                                    st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
-
-                    with col_d:
-                        st.markdown("##### Excluir")
-                        # Mostrar o status na mensagem de exclusão
-                        status_info_del = f" (Status: {transacao_dados.get('Status', 'N/A')})"
-                        st.warning(f"Excluindo: **{transacao_dados['Descricao']}** ({format_currency(transacao_dados['Valor'])}){status_info_del}")
+                        transacao_dados = row 
                         
-                        if st.button("🔴 EXCLUIR TRANSAÇÃO", type="primary", key='del_button_c'):
-                            deletar_transacao(spreadsheet, transacao_selecionada_id)
-                            # t.sleep(1) # REMOVIDO!
+                        col_upd_1, col_upd_2, col_upd_3 = st.columns(3) 
+                        
+                        # Valores existentes
+                        valor_existente = float(transacao_dados['Valor'])
+                        reais_existentes = int(valor_existente)
+                        centavos_existentes = int(round((valor_existente - reais_existentes) * 100))
+                        
+                        # Mês
+                        mes_idx = list(MESES_PT.values()).index(transacao_dados['Mês'])
+                        novo_mes = col_upd_1.selectbox(
+                            "Mês", 
+                            list(MESES_PT.values()), 
+                            index=mes_idx, 
+                            key=f'ut_mes_c_{id_transacao}'
+                        )
+
+                        # Categoria
+                        cat_index = ["Receita", "Despesa"].index(transacao_dados['Categoria'])
+                        novo_categoria = col_upd_2.selectbox(
+                            "Tipo", 
+                            ["Receita", "Despesa"], 
+                            index=cat_index, 
+                            key=f'ut_tipo_c_{id_transacao}'
+                        )
+                        
+                        # Status
+                        novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
+                        status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
+                        novo_status = col_upd_3.selectbox(
+                            "Status", 
+                            ['PAGO', 'PENDENTE'], 
+                            index=status_idx, 
+                            key=f'ut_status_c_{id_transacao}'
+                        )
+                        
+                        # Valores
+                        col_upd_v1, col_upd_v2 = st.columns([2, 1])
+                        
+                        novo_reais_input = col_upd_v1.number_input(
+                            "Valor (R$ - Reais)", 
+                            min_value=0, 
+                            value=reais_existentes, 
+                            step=1, 
+                            format="%d", 
+                            key=f"ut_reais_c_{id_transacao}"
+                        )
+
+                        novo_centavos_input = col_upd_v2.number_input(
+                            "Centavos", 
+                            min_value=0, 
+                            max_value=99, 
+                            value=centavos_existentes, 
+                            step=1, 
+                            format="%d", 
+                            key=f"ut_centavos_c_{id_transacao}"
+                        )
+                        
+                        novo_descricao = st.text_input(
+                            "Descrição", 
+                            value=transacao_dados['Descricao'], 
+                            key=f'ut_desc_c_{id_transacao}'
+                        )
+                        
+                        col_save, col_cancel = st.columns([1, 4])
+                        update_button = col_save.form_submit_button("✅ Salvar")
+                        
+                        if col_cancel.button("Cancelar Edição", key=f'cancel_edit_{id_transacao}'):
+                            st.session_state.id_edicao_ativa = None
+                            st.rerun()
+                        
+                        if update_button:
+                            
+                            novo_reais_final = novo_reais_input if novo_reais_input is not None else 0
+                            novo_centavos_final = novo_centavos_input if novo_centavos_input is not None else 0
+                            novo_valor = novo_reais_final + (novo_centavos_final / 100)
+                            
+                            if novo_descricao and novo_valor >= 0:
+                                dados_atualizados = {
+                                    'ID Transacao': id_transacao, 
+                                    'Descricao': novo_descricao,
+                                    'Valor': novo_valor, 
+                                    'Categoria': novo_categoria,
+                                    'Mês': novo_mes,
+                                    'Status': novo_status
+                                }
+                                atualizar_transacao(spreadsheet, id_transacao, dados_atualizados) 
+                                # t.sleep(1) # REMOVIDO!
+                                st.session_state.id_edicao_ativa = None # Limpa o estado após o sucesso
+                                st.rerun()
+                            else:
+                                st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
+
+                    st.markdown("---") # Separador para o formulário de edição
+
+                else:
+                    st.markdown("---") # Separador entre linhas
+
     else:
         if selected_month and not df_filtrado.empty:
              st.error("Erro na coluna 'Valor' do DataFrame filtrado. Verifique a planilha.")
