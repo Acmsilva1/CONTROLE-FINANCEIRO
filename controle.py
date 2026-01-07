@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA COMPLETA & UX OTIMIZADA)
+# controle.py (VERSÃO FINAL E CORRIGIDA)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -60,14 +60,12 @@ def format_currency(value):
 def get_service_account_credentials():
     """Carrega as credenciais da conta de serviço."""
     try:
-        # AQUI VOCÊ DEVE CONFIGURAR SUAS SECRETS NO STREAMLIT CLOUD
-        # Se estiver rodando local, certifique-se que o arquivo de credenciais está acessível
         creds_dict = st.secrets["gcp_service_account"] 
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
         return creds
     except Exception:
-        st.error("Erro: Credenciais não encontradas ou inválidas.")
+        st.error("Erro: Credenciais não encontradas ou inválidas. Verifique st.secrets.")
         return None
 
 @st.cache_resource(ttl=3600) 
@@ -107,14 +105,11 @@ def carregar_dados():
 
         if not df_transacoes.empty:
             
-            # Garante que a coluna Status exista 
             if 'Status' not in df_transacoes.columns:
                 df_transacoes['Status'] = STATUS_DEFAULT 
             
-            # Converte para numérico
             df_transacoes['Valor'] = pd.to_numeric(df_transacoes['Valor'], errors='coerce')
             
-            # Preenche Status vazio/NaN com o Default
             df_transacoes['Status'] = df_transacoes['Status'].fillna(STATUS_DEFAULT)
             df_transacoes.loc[df_transacoes['Status'] == '', 'Status'] = STATUS_DEFAULT
             
@@ -133,7 +128,6 @@ def adicionar_transacao(spreadsheet, dados_do_form):
     try:
         sheet = spreadsheet.worksheet(ABA_TRANSACOES)
         
-        # Garante que a ordem segue COLUNAS_SIMPLIFICADAS, incluindo 'Status'
         nova_linha = [dados_do_form.get(col) for col in COLUNAS_SIMPLIFICADAS]
         
         sheet.append_row(nova_linha, value_input_option='USER_ENTERED')
@@ -151,7 +145,6 @@ def atualizar_transacao(spreadsheet, id_transacao, novos_dados):
         cell = sheet.find(id_transacao) 
         linha_index = cell.row 
         
-        # Garante que a ordem segue COLUNAS_SIMPLIFICADAS, incluindo 'Status'
         valores_atualizados = [novos_dados.get(col) for col in COLUNAS_SIMPLIFICADAS]
 
         sheet.update(f'A{linha_index}', [valores_atualizados], value_input_option='USER_ENTERED')
@@ -189,7 +182,6 @@ if 'filtro_mes' not in st.session_state:
     mes_atual_init = MESES_PT.get(datetime.now().month, 'Jan')
     st.session_state.filtro_mes = mes_atual_init
     
-# NOVO ESTADO: Armazena o ID da transação que está sendo editada
 if 'id_edicao_ativa' not in st.session_state:
     st.session_state['id_edicao_ativa'] = None
 
@@ -198,16 +190,16 @@ spreadsheet = conectar_sheets_resource()
 if spreadsheet is None:
     st.stop() 
 
-# --- NOVO BLOCO DE REFRESH MANUAL ---
+# --- BLOCO DE REFRESH MANUAL ---
 with st.sidebar:
     st.markdown("---")
     if st.button("Forçar Atualização Manual 🔄", help="Limpa o cache e busca os dados mais recentes do Google Sheets."):
-        carregar_dados.clear() # Limpa o cache para forçar nova leitura
-        st.rerun() # Força a re-execução do script
+        carregar_dados.clear() 
+        st.rerun() 
     st.markdown("---")
     st.info("Atualização: Automática ao salvar/deletar, ou use o botão manual.")
 
-# Carregamento de Dados (usará o cache ou fará a leitura se o cache for limpo)
+# Carregamento de Dados 
 df_transacoes = carregar_dados() 
 
 # === INSERÇÃO DE DADOS (CREATE) - FORMS SEPARADOS ===
@@ -216,7 +208,7 @@ st.header("📥 Registrar Novas Transações")
 
 col_rec_form, col_des_form = st.columns(2)
 
-# --- FORMULÁRIO DE RECEITA (Simples, sem Status) ---
+# --- FORMULÁRIO DE RECEITA ---
 with col_rec_form:
     st.markdown("##### 🟢 Nova Receita (Entrada Simples)")
     with st.form("form_transacao_receita", clear_on_submit=True):
@@ -231,7 +223,6 @@ with col_rec_form:
             key="mes_ref_r"
         )
         
-        # VALOR
         reais_input_r = col_r2.number_input(
             "Valor (R$ - Reais)", 
             min_value=0, 
@@ -272,11 +263,11 @@ with col_rec_form:
                     "Status": STATUS_DEFAULT 
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
-                st.rerun() # Força a atualização após o sucesso
+                st.rerun() 
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Receita.")
 
-# --- FORMULÁRIO DE DESPESA (Com Status) ---
+# --- FORMULÁRIO DE DESPESA ---
 with col_des_form:
     st.markdown("##### 🔴 Nova Despesa (Com Status)")
     with st.form("form_transacao_despesa", clear_on_submit=True):
@@ -291,14 +282,12 @@ with col_des_form:
             key="mes_ref_d"
         )
         
-        # STATUS (APENAS PARA DESPESAS)
         status_select_d = col_d2.selectbox(
             "Status (PAGO / PENDENTE)",
             options=['PAGO', 'PENDENTE'],
             key="status_d"
         )
 
-        # VALOR
         reais_input_d = st.number_input(
             "Valor (R$ - Reais)", 
             min_value=0, 
@@ -339,7 +328,7 @@ with col_des_form:
                     "Status": status_select_d 
                 }
                 adicionar_transacao(spreadsheet, data_to_save) 
-                st.rerun() # Força a atualização após o sucesso
+                st.rerun() 
             else:
                 st.warning("Descrição e Valor (deve ser maior que zero) são obrigatórios para Despesa.")
 
@@ -363,7 +352,6 @@ else:
     )
 
     if selected_month and 'Mês' in df_transacoes.columns:
-        # Filtra os dados
         df_filtrado = df_transacoes[df_transacoes['Mês'] == selected_month].copy()
     else:
         df_filtrado = pd.DataFrame() 
@@ -373,33 +361,17 @@ else:
     
     if not df_filtrado.empty and 'Valor' in df_filtrado.columns:
         
-        # 1. Totais Brutos (PAGO + PENDENTE)
+        # Cálculo dos KPIs
         total_receita_bruta = df_filtrado[df_filtrado['Categoria'] == 'Receita']['Valor'].sum()
         total_despesa_bruta = df_filtrado[df_filtrado['Categoria'] == 'Despesa']['Valor'].sum()
-        
-        # 2. Totais Realizados (Apenas PAGO)
-        total_receita_paga = df_filtrado[
-            (df_filtrado['Categoria'] == 'Receita') & 
-            (df_filtrado['Status'] == 'PAGO')
-        ]['Valor'].sum()
-
-        total_despesa_paga = df_filtrado[
-            (df_filtrado['Categoria'] == 'Despesa') & 
-            (df_filtrado['Status'] == 'PAGO')
-        ]['Valor'].sum()
-        
-        # 3. Lucro Líquido Real (Receitas PAGAS - Despesas PAGAS)
+        total_receita_paga = df_filtrado[(df_filtrado['Categoria'] == 'Receita') & (df_filtrado['Status'] == 'PAGO')]['Valor'].sum()
+        total_despesa_paga = df_filtrado[(df_filtrado['Categoria'] == 'Despesa') & (df_filtrado['Status'] == 'PAGO')]['Valor'].sum()
         margem_liquida_real = total_receita_paga - total_despesa_paga
-        
-        # 4. KPI: DESPESAS PENDENTES (Despesa Bruta - Despesa Paga)
         total_despesa_pendente = total_despesa_bruta - total_despesa_paga
-        
         margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal"
 
-        # 5 COLUNAS
         col1, col2, col3, col4, col5 = st.columns(5)
         
-        # CARDS
         col1.metric("Receitas (Brutas)", format_currency(total_receita_bruta))
         col2.metric("Despesas (Brutas)", format_currency(total_despesa_bruta)) 
         col3.metric("Despesas (PAGAS)", format_currency(total_despesa_paga))
@@ -418,7 +390,6 @@ else:
         
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
-        # DataFrame a ser exibido (Ordenado)
         df_display = df_filtrado.copy().sort_values(by=['Categoria', 'Status', 'Valor'], ascending=[False, True, False])
         
         if df_display.empty:
@@ -430,8 +401,8 @@ else:
             cols_header[0].markdown("**Descrição**")
             cols_header[1].markdown("**Categoria**")
             cols_header[2].markdown("**Valor / Status**")
-            cols_header[3].markdown(" ") # Botão Editar
-            cols_header[4].markdown(" ") # Botão Excluir
+            cols_header[3].markdown(" ") 
+            cols_header[4].markdown(" ") 
             st.markdown("---")
             
             # Loop sobre cada transação
@@ -444,24 +415,21 @@ else:
                     
                     col_desc, col_cat, col_val_status, col_btn_edit, col_btn_del = st.columns([0.4, 0.2, 0.2, 0.1, 0.1])
                     
-                    # Estilização da Descrição
                     categoria_cor = "green" if row['Categoria'] == 'Receita' else "red"
                     
                     col_desc.markdown(f"**<span style='color:{categoria_cor}'>{row['Descricao']}</span>**", unsafe_allow_html=True)
                     col_cat.write(row['Categoria'])
                     col_val_status.write(f"{format_currency(row['Valor'])} ({row['Status']})")
 
-                    # Botão Editar
                     if col_btn_edit.button("✍️", key=f'edit_{id_transacao}', help="Editar esta transação"):
-                        st.session_state.id_edicao_ativa = id_transacao # Ativa o formulário
-                        st.rerun() # Força o re-run para exibir o formulário
+                        st.session_state.id_edicao_ativa = id_transacao 
+                        st.rerun() 
 
-                    # Botão Excluir
                     if col_btn_del.button("🗑️", key=f'del_{id_transacao}', help="Excluir esta transação"):
                         deletar_transacao(spreadsheet, id_transacao)
-                        st.rerun() # Força a atualização
+                        st.rerun() 
                 
-                    st.markdown("---") # Separador entre linhas normais
+                    st.markdown("---") 
                 
                 # 2. Se a linha ESTÁ em modo de edição (FORMULÁRIO)
                 else: 
@@ -473,40 +441,19 @@ else:
                         
                         col_upd_1, col_upd_2, col_upd_3 = st.columns(3) 
                         
-                        # Valores existentes
                         valor_existente = float(transacao_dados['Valor'])
                         reais_existentes = int(valor_existente)
                         centavos_existentes = int(round((valor_existente - reais_existentes) * 100))
                         
-                        # Mês
+                        # INPUTS
                         mes_idx = list(MESES_PT.values()).index(transacao_dados['Mês'])
-                        novo_mes = col_upd_1.selectbox(
-                            "Mês", 
-                            list(MESES_PT.values()), 
-                            index=mes_idx, 
-                            key=f'ut_mes_c_{id_transacao}'
-                        )
-
-                        # Categoria
+                        novo_mes = col_upd_1.selectbox("Mês", list(MESES_PT.values()), index=mes_idx, key=f'ut_mes_c_{id_transacao}')
                         cat_index = ["Receita", "Despesa"].index(transacao_dados['Categoria'])
-                        novo_categoria = col_upd_2.selectbox(
-                            "Tipo", 
-                            ["Receita", "Despesa"], 
-                            index=cat_index, 
-                            key=f'ut_tipo_c_{id_transacao}'
-                        )
-                        
-                        # Status
+                        novo_categoria = col_upd_2.selectbox("Tipo", ["Receita", "Despesa"], index=cat_index, key=f'ut_tipo_c_{id_transacao}')
                         novo_status_existente = transacao_dados.get('Status', STATUS_DEFAULT) 
                         status_idx = ['PAGO', 'PENDENTE'].index(novo_status_existente)
-                        novo_status = col_upd_3.selectbox(
-                            "Status", 
-                            ['PAGO', 'PENDENTE'], 
-                            index=status_idx, 
-                            key=f'ut_status_c_{id_transacao}'
-                        )
+                        novo_status = col_upd_3.selectbox("Status", ['PAGO', 'PENDENTE'], index=status_idx, key=f'ut_status_c_{id_transacao}')
                         
-                        # Valores
                         col_upd_v1, col_upd_v2 = st.columns([2, 1])
                         
                         novo_reais_input = col_upd_v1.number_input(
@@ -534,13 +481,9 @@ else:
                             key=f'ut_desc_c_{id_transacao}'
                         )
                         
-                        col_save, col_cancel = st.columns([1, 4])
-                        update_button = col_save.form_submit_button("✅ Salvar")
-                        
-                        if col_cancel.button("Cancelar Edição", key=f'cancel_edit_{id_transacao}'):
-                            st.session_state.id_edicao_ativa = None
-                            st.rerun()
-                        
+                        # BOTÃO DE SALVAR (DENTRO DO FORM)
+                        update_button = st.form_submit_button("✅ Salvar Alterações")
+
                         if update_button:
                             
                             novo_reais_final = novo_reais_input if novo_reais_input is not None else 0
@@ -557,10 +500,16 @@ else:
                                     'Status': novo_status
                                 }
                                 atualizar_transacao(spreadsheet, id_transacao, dados_atualizados) 
-                                st.session_state.id_edicao_ativa = None # Limpa o estado após o sucesso
+                                st.session_state.id_edicao_ativa = None 
                                 st.rerun()
                             else:
                                 st.warning("Descrição e Valor (deve ser maior ou igual a zero) são obrigatórios na atualização.")
+
+                    # BOTÃO DE CANCELAR (FORA DO FORM)
+                    col_dummy_save, col_cancel_out = st.columns([1, 4])
+                    if col_cancel_out.button("Cancelar Edição", key=f'cancel_edit_{id_transacao}'):
+                        st.session_state.id_edicao_ativa = None
+                        st.rerun()
 
                     st.markdown("---") # Separador para o formulário de edição
 
