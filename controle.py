@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL E CORRIGIDA)
+# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E CORREÇÕES)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -190,11 +190,12 @@ spreadsheet = conectar_sheets_resource()
 if spreadsheet is None:
     st.stop() 
 
-# --- BLOCO DE REFRESH MANUAL ---
+# --- BLOCO DE REFRESH MANUAL (Corrigido para dar feedback de UX) ---
 with st.sidebar:
     st.markdown("---")
     if st.button("Forçar Atualização Manual 🔄", help="Limpa o cache e busca os dados mais recentes do Google Sheets."):
         carregar_dados.clear() 
+        st.success("✅ Cache limpo! Recarregando dados...") 
         st.rerun() 
     st.markdown("---")
     st.info("Atualização: Automática ao salvar/deletar, ou use o botão manual.")
@@ -522,4 +523,5 @@ else:
 
 with st.sidebar:
     st.markdown("---")
+    # A mensagem no sidebar é atualizada após o rerun
     st.caption(f"Última leitura de dados (Cache/Sheets): {datetime.now().strftime('%H:%M:%S')}")
