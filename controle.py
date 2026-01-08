@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E CORREÇÕES)
+# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E ORDEM DE EXIBIÇÃO CORRIGIDAS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -12,7 +12,6 @@ from google.oauth2 import service_account
 # --- CONFIGURAÇÕES DA PLANILHA ---
 SHEET_ID = "1UgLkIHyl1sDeAUeUUn3C6TfOANZFn6KD9Yvd-OkDkfQ" 
 ABA_TRANSACOES = "TRANSACOES" 
-# ADICIONANDO 'Status' à lista de colunas para garantir a ordem no Sheets
 COLUNAS_SIMPLIFICADAS = ['ID Transacao', 'Mês', 'Descricao', 'Categoria', 'Valor', 'Status']
 STATUS_DEFAULT = 'PAGO' 
 
@@ -391,7 +390,23 @@ else:
         
         st.subheader(f"📑 Registros de Transações Detalhadas ({selected_month})")
         
-        df_display = df_filtrado.copy().sort_values(by=['Categoria', 'Status', 'Valor'], ascending=[False, True, False])
+        # 1. Mapeamento para priorizar PENDENTE (1) sobre PAGO (2) nas Despesas
+        # 'PENDENTE' vem antes de 'PAGO'
+        status_priority_map = {
+            'PENDENTE': 1,
+            'PAGO': 2
+        }
+        df_filtrado['Ordem_Status'] = df_filtrado['Status'].map(status_priority_map)
+        
+        # DataFrame a ser exibido (Ordenado)
+        df_display = df_filtrado.copy().sort_values(
+            by=['Categoria', 'Ordem_Status', 'Valor'], 
+            ascending=[
+                False, # Categoria (Receita Z->A) primeiro
+                True,  # Ordem_Status (PENDENTE 1->2) segundo
+                False  # Valor (Maior->Menor) para desempate
+            ]
+        )
         
         if df_display.empty:
             st.info(f"Sem transações para o mês de **{selected_month}**.")
@@ -523,5 +538,4 @@ else:
 
 with st.sidebar:
     st.markdown("---")
-    # A mensagem no sidebar é atualizada após o rerun
     st.caption(f"Última leitura de dados (Cache/Sheets): {datetime.now().strftime('%H:%M:%S')}")
