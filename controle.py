@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E ORDEM DE EXIBIÇÃO CORRIGIDAS + COLORAÇÃO CONDICIONAL + MÉTRICAS NEUTRAS)
+# controle.py (VERSÃO FINAL: GOVERNANÇA, UX, ORDEM DE EXIBIÇÃO E MÉTRICAS NEUTRAS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -368,8 +368,6 @@ else:
         total_despesa_paga = df_filtrado[(df_filtrado['Categoria'] == 'Despesa') & (df_filtrado['Status'] == 'PAGO')]['Valor'].sum()
         margem_liquida_real = total_receita_paga - total_despesa_paga
         total_despesa_pendente = total_despesa_bruta - total_despesa_paga
-        # A linha de cor da margem foi desativada, pois usaremos "off" para forçar a cor neutra.
-        # margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal" 
 
         col1, col2, col3, col4, col5 = st.columns(5)
         
@@ -377,17 +375,26 @@ else:
         col2.metric("Despesas (Brutas)", format_currency(total_despesa_bruta)) 
         col3.metric("Despesas (PAGAS)", format_currency(total_despesa_paga))
         
-        # COLUNA 4: Despesa Pendente (AGORA COM DELTA NEUTRO: delta_color="off")
-        col4.metric("Despesas (PENDENTES)", # Título sem emoji de cor
-                    format_currency(total_despesa_pendente), 
-                    delta="A Pagar", 
-                    delta_color="off") # <<< ALTERADO para cor neutra
+        # COLUNA 4: Despesa Pendente (SOMENTE VALOR, SEM DELTA/SETA)
+        col4.metric("Despesas (PENDENTES)", 
+                    format_currency(total_despesa_pendente)) 
         
-        # COLUNA 5: Lucro Líquido (AGORA COM DELTA NEUTRO: delta_color="off")
+        # COLUNA 5: Lucro Líquido (SOMENTE VALOR, SEM DELTA/SETA)
         col5.metric("Lucro Líquido", 
-                    format_currency(margem_liquida_real), 
-                    delta=f"{'PREJUÍZO' if margem_liquida_real < 0 else 'LUCRO'}", 
-                    delta_color="off") # <<< ALTERADO para cor neutra
+                    format_currency(margem_liquida_real))
+
+        # === LEGENDA CLARA ===
+        st.markdown(f"""
+            <div style='background-color:#1e1e1e; padding: 10px; border-radius: 5px; margin-top: 10px;'>
+            <p style='font-weight: bold; color: #f0f0f0;'>Legenda do Dashboard ({selected_month}):</p>
+            <ul>
+                <li>**Receitas (Brutas):** Total de Receitas lançadas.</li>
+                <li>**Despesas (PENDENTES):** Valor total de despesas a serem pagas no futuro (ainda não baixado).</li>
+                <li>**Lucro Líquido:** Receitas Pagas - Despesas Pagas (Resultado Financeiro *Real* do Mês).</li>
+            </ul>
+            </div>
+        """, unsafe_allow_html=True)
+        # =======================
 
         st.markdown("---")
         
