@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E ORDEM DE EXIBIÇÃO CORRIGIDAS)
+# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E ORDEM DE EXIBIÇÃO CORRIGIDAS + COLORAÇÃO CONDICIONAL)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -431,7 +431,16 @@ else:
                     
                     col_desc, col_cat, col_val_status, col_btn_edit, col_btn_del = st.columns([0.4, 0.2, 0.2, 0.1, 0.1])
                     
-                    categoria_cor = "green" if row['Categoria'] == 'Receita' else "red"
+                    # === NOVO CÓDIGO PARA COLORAÇÃO CONDICIONAL ===
+                    if row['Categoria'] == 'Receita':
+                        categoria_cor = "green"
+                    elif row['Categoria'] == 'Despesa' and row['Status'] == 'PAGO':
+                        # Despesa PAGA fica neutra/cinza
+                        categoria_cor = "darkgrey" 
+                    else:
+                        # Despesa PENDENTE (continua vermelho)
+                        categoria_cor = "red"
+                    # ===============================================
                     
                     col_desc.markdown(f"**<span style='color:{categoria_cor}'>{row['Descricao']}</span>**", unsafe_allow_html=True)
                     col_cat.write(row['Categoria'])
