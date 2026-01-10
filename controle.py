@@ -1,4 +1,4 @@
-# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E ORDEM DE EXIBIÇÃO CORRIGIDAS + COLORAÇÃO CONDICIONAL)
+# controle.py (VERSÃO FINAL: GOVERNANÇA, UX E ORDEM DE EXIBIÇÃO CORRIGIDAS + COLORAÇÃO CONDICIONAL + MÉTRICAS NEUTRAS)
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -368,21 +368,26 @@ else:
         total_despesa_paga = df_filtrado[(df_filtrado['Categoria'] == 'Despesa') & (df_filtrado['Status'] == 'PAGO')]['Valor'].sum()
         margem_liquida_real = total_receita_paga - total_despesa_paga
         total_despesa_pendente = total_despesa_bruta - total_despesa_paga
-        margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal"
+        # A linha de cor da margem foi desativada, pois usaremos "off" para forçar a cor neutra.
+        # margem_delta_color = "inverse" if margem_liquida_real < 0 else "normal" 
 
         col1, col2, col3, col4, col5 = st.columns(5)
         
         col1.metric("Receitas (Brutas)", format_currency(total_receita_bruta))
         col2.metric("Despesas (Brutas)", format_currency(total_despesa_bruta)) 
         col3.metric("Despesas (PAGAS)", format_currency(total_despesa_paga))
-        col4.metric("🔴 Despesas (PENDENTES)", 
+        
+        # COLUNA 4: Despesa Pendente (AGORA COM DELTA NEUTRO: delta_color="off")
+        col4.metric("Despesas (PENDENTES)", # Título sem emoji de cor
                     format_currency(total_despesa_pendente), 
                     delta="A Pagar", 
-                    delta_color="inverse")
+                    delta_color="off") # <<< ALTERADO para cor neutra
+        
+        # COLUNA 5: Lucro Líquido (AGORA COM DELTA NEUTRO: delta_color="off")
         col5.metric("Lucro Líquido", 
                     format_currency(margem_liquida_real), 
                     delta=f"{'PREJUÍZO' if margem_liquida_real < 0 else 'LUCRO'}", 
-                    delta_color=margem_delta_color)
+                    delta_color="off") # <<< ALTERADO para cor neutra
 
         st.markdown("---")
         
@@ -431,7 +436,7 @@ else:
                     
                     col_desc, col_cat, col_val_status, col_btn_edit, col_btn_del = st.columns([0.4, 0.2, 0.2, 0.1, 0.1])
                     
-                    # === NOVO CÓDIGO PARA COLORAÇÃO CONDICIONAL ===
+                    # === CÓDIGO PARA COLORAÇÃO CONDICIONAL NA TABELA (UX VISUAL) ===
                     if row['Categoria'] == 'Receita':
                         categoria_cor = "green"
                     elif row['Categoria'] == 'Despesa' and row['Status'] == 'PAGO':
@@ -440,7 +445,7 @@ else:
                     else:
                         # Despesa PENDENTE (continua vermelho)
                         categoria_cor = "red"
-                    # ===============================================
+                    # =============================================================
                     
                     col_desc.markdown(f"**<span style='color:{categoria_cor}'>{row['Descricao']}</span>**", unsafe_allow_html=True)
                     col_cat.write(row['Categoria'])
